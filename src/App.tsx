@@ -13,8 +13,9 @@
 import { Scroll, signal, Text, View } from "nsh";
 import type { JSX } from "nsh";
 import { Button, NumberInput, Slider, Switch } from "nsh/base";
+import { Area, Grid, Line, Plot, PlotAxis } from "nsh/base/plot";
 import * as api from "./app/api";
-import { Caption, Card, Metric, Note, Row } from "./app/ui";
+import { Caption, Card, Metric, Note, Row, Value } from "./app/ui";
 import { bindWindow, installTray, interceptClose } from "./app/desktop";
 import { gainText, speedText } from "./app/format";
 
@@ -22,12 +23,14 @@ import { gainText, speedText } from "./app/format";
 
 const BTN = "h-8 rounded-full px-3";
 const BTN_GHOST = `${BTN} border border-border hover:bg-accent`;
-const BTN_PRIMARY = `${BTN} bg-primary hover:bg-primary/90`;
 const BTN_DANGER = `${BTN} border border-destructive hover:bg-accent`;
+/** 分段控件的两半：选中那半填色，另一半只留 hover。 */
+const SEG_ON = "h-7 rounded-full px-3 bg-primary";
+const SEG_OFF = "h-7 rounded-full px-3 hover:bg-accent";
 const LABEL = "text-xs text-foreground";
 const LABEL_PRIMARY = "text-xs text-primary-foreground";
 const LABEL_DANGER = "text-xs text-destructive";
-const SLIDER = "w-40";
+const SLIDER = "w-56";
 const SLIDER_TRACK = "h-6 justify-center";
 const SLIDER_INDICATOR = "h-1.5 rounded-full bg-muted";
 const SLIDER_RANGE = "rounded-full bg-primary";
@@ -109,23 +112,25 @@ function curveHigh(): number {
   return curvePoints()[3][1];
 }
 
+/** 滑块草稿对应的四个断点；`saveCurve` 与预览共用，免得两处漂移。 */
+function draftPoints(): api.CurvePoint[] {
+  const draft = curve();
+  return [
+    [0, 1],
+    [draft.start, 1],
+    [12, draft.mid],
+    [24, draft.high],
+  ];
+}
+
 /** 三个旋钮对应的就是这四个断点：`[0,1] [起点,1] [12,中速] [24,高速]`。 */
 function saveCurve(): void {
-  const draft = curve();
-  applyConfig({
-    ...config(),
-    curve: [
-      [0, 1],
-      [draft.start, 1],
-      [12, draft.mid],
-      [24, draft.high],
-    ],
-  });
+  applyConfig({ ...config(), curve: draftPoints() });
 }
 
 /** 和 `src/curve.rs` 的 `Curve::gain` 同一套算法，只为画预览。 */
 function gainAt(velocity: number): number {
-  const points = curvePoints();
+  const points = draftPoints();
   if (velocity <= points[0][0]) return points[0][1];
   for (let i = 1; i < points.length; i += 1) {
     const [x0, g0] = points[i - 1];
@@ -232,25 +237,51 @@ function Header(): JSX.Element {
   );
 }
 
-/** 曲线预览：24 根柱子，高度就是这个速度下的倍率。 */
+/** 预览的横轴：1 到 24 格/秒，一个速度一行。 */
+const CURVE_TICKS = Array.from({ length: 24 }, (_, index) => index + 1);
+
+/**
+ * 曲线行：倍率在渲染时算进行里。
+ *
+ * `Plot` 只在 `data` 变了才重读各行的值，传一个常量数组会让预览冻住。
+ */
+function curveRows(): { v: number; g: number }[] {
+  return CURVE_TICKS.map((v) => ({ v, g: gainAt(v) }));
+}
+
+/**
+ * 曲线预览：nsh/base 的 `Plot`，横轴速度、纵轴倍率，虚线标出加速起点。
+ *
+ * 曲线本身是分段直线，所以 `curve` 用 `linear`（不是默认的平滑曲线）。
+ */
 function CurvePreview(): JSX.Element {
-  const bars = [];
-  for (let velocity = 1; velocity <= 24; velocity += 1) {
-    const gain = gainAt(velocity);
-    bars.push(
-      <View
-        class={velocity > curve().start ? "flex-1 rounded-full bg-primary" : "flex-1 rounded-full bg-muted"}
-        style={{ height: Math.round(6 + (gain / 12) * 40) }}
-      />,
-    );
-  }
   return (
-    <View class="flex-col gap-1">
-      <View class="h-12 flex-row items-end gap-1">{bars}</View>
-      <View class="flex-row items-center justify-between">
-        <Caption>慢</Caption>
-        <Caption>24 格/秒</Caption>
+    <View class="flex-col gap-2">
+      {/* pb-6 是给 x 轴刻度留的位置：`PlotAxis` 的标签画在图外面。 */}
+      <View class="pb-6">
+        <Plot
+          class="h-28 w-full text-primary"
+          data={curveRows()}
+          x={(row) => row.v}
+          y={(row) => row.g}
+          xScale={{ type: "linear", domain: [1, 24] }}
+          yScale={{ type: "linear", domain: [1, Math.max(curve().high, 1)] }}
+          interactive={false}
+        >
+          <Grid class="stroke-border" />
+          <Grid x={[curve().start]} class="stroke-muted-foreground" style={{ strokeDasharray: "4 4" }} />
+          <Area curve="linear" class="fill-primary/10" />
+          <Line curve="linear" class="stroke-primary" style={{ strokeWidth: 2 }} />
+          <PlotAxis placement="bottom" ticks={4} labelClass="text-xs text-muted-foreground" />
+          <PlotAxis
+            placement="left"
+            ticks={3}
+            format={(value) => `${value}x`}
+            labelClass="text-xs text-muted-foreground"
+          />
+        </Plot>
       </View>
+      <Caption>横轴是滚动速度（格/秒），纵轴是倍率；虚线是加速起点，它左边保持原生手感。</Caption>
     </View>
   );
 }
@@ -258,53 +289,64 @@ function CurvePreview(): JSX.Element {
 function CurveCard(): JSX.Element {
   return (
     <Card title="变速曲线" hint="滚得越快，一格顶的行数越多；一格一格滚永远不加速">
-      <Row label="加速起点" hint={`${curve().start} 格/秒 以下保持 1.0x`}>
-        <Slider
-          class={SLIDER}
-          value={curve().start}
-          min={1}
-          max={20}
-          step={1}
-          onChange={(event) => curve.update((draft) => ({ ...draft, start: single(event.value) }))}
-          onChangeEnd={saveCurve}
-          trackClass={SLIDER_TRACK}
-          indicatorClass={SLIDER_INDICATOR}
-          rangeClass={SLIDER_RANGE}
-          thumbClass={SLIDER_THUMB}
-        />
+      <Row label="加速起点" hint="低于这个速度保持原生手感">
+        <View class="flex-row items-center gap-3">
+          <Value text={`${curve().start} 格/秒`} />
+          <Slider
+            class={SLIDER}
+            testID="curve-start"
+            value={curve().start}
+            min={1}
+            max={20}
+            step={1}
+            onChange={(event) => curve.update((draft) => ({ ...draft, start: single(event.value) }))}
+            onChangeEnd={saveCurve}
+            trackClass={SLIDER_TRACK}
+            indicatorClass={SLIDER_INDICATOR}
+            rangeClass={SLIDER_RANGE}
+            thumbClass={SLIDER_THUMB}
+          />
+        </View>
       </Row>
       <Row label="中速倍率" hint="12 格/秒 时一格顶几行">
-        <Slider
-          class={SLIDER}
-          value={curve().mid}
-          min={1}
-          max={8}
-          step={0.1}
-          onChange={(event) => curve.update((draft) => ({ ...draft, mid: single(event.value) }))}
-          onChangeEnd={saveCurve}
-          trackClass={SLIDER_TRACK}
-          indicatorClass={SLIDER_INDICATOR}
-          rangeClass={SLIDER_RANGE}
-          thumbClass={SLIDER_THUMB}
-        />
+        <View class="flex-row items-center gap-3">
+          <Value text={gainText(curve().mid)} />
+          <Slider
+            class={SLIDER}
+            testID="curve-mid"
+            value={curve().mid}
+            min={1}
+            max={8}
+            step={0.1}
+            onChange={(event) => curve.update((draft) => ({ ...draft, mid: single(event.value) }))}
+            onChangeEnd={saveCurve}
+            trackClass={SLIDER_TRACK}
+            indicatorClass={SLIDER_INDICATOR}
+            rangeClass={SLIDER_RANGE}
+            thumbClass={SLIDER_THUMB}
+          />
+        </View>
       </Row>
-      <Row label="高速倍率" hint="24 格/秒 及以上">
-        <Slider
-          class={SLIDER}
-          value={curve().high}
-          min={1}
-          max={12}
-          step={0.1}
-          onChange={(event) => curve.update((draft) => ({ ...draft, high: single(event.value) }))}
-          onChangeEnd={saveCurve}
-          trackClass={SLIDER_TRACK}
-          indicatorClass={SLIDER_INDICATOR}
-          rangeClass={SLIDER_RANGE}
-          thumbClass={SLIDER_THUMB}
-        />
+      <Row label="高速倍率" hint="24 格/秒 及以上，封顶">
+        <View class="flex-row items-center gap-3">
+          <Value text={gainText(curve().high)} />
+          <Slider
+            class={SLIDER}
+            testID="curve-high"
+            value={curve().high}
+            min={1}
+            max={12}
+            step={0.1}
+            onChange={(event) => curve.update((draft) => ({ ...draft, high: single(event.value) }))}
+            onChangeEnd={saveCurve}
+            trackClass={SLIDER_TRACK}
+            indicatorClass={SLIDER_INDICATOR}
+            rangeClass={SLIDER_RANGE}
+            thumbClass={SLIDER_THUMB}
+          />
+        </View>
       </Row>
       <CurvePreview />
-      <Caption>{`当前：${curve().start} 格/秒 起步 · 中速 ${gainText(curve().mid)} · 高速 ${gainText(curve().high)}`}</Caption>
     </Card>
   );
 }
@@ -347,9 +389,7 @@ function AppsCard(): JSX.Element {
           <Text class={LABEL}>加入跳过</Text>
         </Button>
       </Row>
-      {config().skip.length === 0 ? (
-        <Caption>跳过列表是空的。</Caption>
-      ) : (
+      {config().skip.length === 0 ? null : (
         config().skip.map((exe) => (
           <View class="flex-row items-center gap-3">
             <Text class="flex-1 text-xs text-muted-foreground">{exe}</Text>
@@ -364,41 +404,42 @@ function AppsCard(): JSX.Element {
 }
 
 function ModeCard(): JSX.Element {
-  const isHook = config().mode === "hook";
+  /** 写成函数而不是常量：组件体只跑一次，常量会冻在首帧。 */
+  const isHook = () => config().mode === "hook";
   return (
-    <Card title="实现方式与透传" hint="钩子能智能变速；兼容模式只是改系统的固定值">
-      <Row label="钩子 + 重注入" hint="按曲线改每一格；提权窗口里不生效">
-        <Button
-          class={isHook ? BTN_PRIMARY : BTN_GHOST}
-          onPress={isHook ? undefined : () => applyConfig({ ...config(), mode: "hook" })}
-        >
-          <Text class={isHook ? LABEL_PRIMARY : LABEL}>{isHook ? "当前" : "切换"}</Text>
-        </Button>
+    <Card title="实现方式与透传" hint="钩子能按速度智能变速；兼容模式只是改系统的固定值">
+      <Row
+        label="变速方式"
+        hint={isHook() ? "按曲线改每一格；提权窗口里不生效" : "直接改 Windows 的「每格滚几行」，不装钩子"}
+      >
+        <View class="flex-row gap-1 rounded-full border border-border p-1">
+          <Button class={isHook() ? SEG_ON : SEG_OFF} onPress={() => applyConfig({ ...config(), mode: "hook" })}>
+            <Text class={isHook() ? LABEL_PRIMARY : LABEL}>钩子</Text>
+          </Button>
+          <Button class={isHook() ? SEG_OFF : SEG_ON} onPress={() => applyConfig({ ...config(), mode: "system" })}>
+            <Text class={isHook() ? LABEL : LABEL_PRIMARY}>兼容</Text>
+          </Button>
+        </View>
       </Row>
-      <Row label="兼容模式" hint="直接改 Windows 的「每格滚几行」，不装钩子">
-        <Button
-          class={isHook ? BTN_GHOST : BTN_PRIMARY}
-          onPress={isHook ? () => applyConfig({ ...config(), mode: "system" }) : undefined}
-        >
-          <Text class={isHook ? LABEL : LABEL_PRIMARY}>{isHook ? "切换" : "当前"}</Text>
-        </Button>
-      </Row>
-      {isHook ? null : (
+      {isHook() ? null : (
         <Row label="每格行数" hint={`系统当前是 ${meta.systemLines} 行；退出兼容模式时自动还原`}>
-          <Slider
-            class={SLIDER}
-            value={config().systemLines}
-            min={1}
-            max={25}
-            step={1}
-            onChange={(event) =>
-              applyConfig({ ...config(), systemLines: Math.round(single(event.value)) })
-            }
-            trackClass={SLIDER_TRACK}
-            indicatorClass={SLIDER_INDICATOR}
-            rangeClass={SLIDER_RANGE}
-            thumbClass={SLIDER_THUMB}
-          />
+          <View class="flex-row items-center gap-3">
+            <Value text={`${config().systemLines} 行`} />
+            <Slider
+              class={SLIDER}
+              value={config().systemLines}
+              min={1}
+              max={25}
+              step={1}
+              onChange={(event) =>
+                applyConfig({ ...config(), systemLines: Math.round(single(event.value)) })
+              }
+              trackClass={SLIDER_TRACK}
+              indicatorClass={SLIDER_INDICATOR}
+              rangeClass={SLIDER_RANGE}
+              thumbClass={SLIDER_THUMB}
+            />
+          </View>
         </Row>
       )}
       <Row label="平滑滚动" hint="一次大跳拆成小格按节拍发（无级感）；关掉更跟手，但会一跳一跳">
@@ -455,7 +496,11 @@ function StatsCard(): JSX.Element {
       </View>
       <View class="flex-row gap-3">
         <Metric label="原样放行" value={`${snap()?.stats.passed ?? 0}`} />
-        <Metric label="注入失败" value={`${snap()?.stats.injectFailed ?? 0}`} />
+        <Metric
+          label="注入失败"
+          value={`${snap()?.stats.injectFailed ?? 0}`}
+          tone={(snap()?.stats.injectFailed ?? 0) > 0 ? "danger" : "normal"}
+        />
         <Metric label="当前速度" value={speedText(snap()?.stats.velocity ?? 0)} />
         <Metric label="当前倍率" value={gainText(snap()?.stats.gain ?? 1)} />
       </View>
@@ -536,8 +581,8 @@ export function App(): JSX.Element {
       <Scroll class="flex-1" contentOffset={{ x: 0, y: 0 }}>
         <View class="flex-col gap-3 p-4">
           <CurveCard />
-          <AppsCard />
           <ModeCard />
+          <AppsCard />
           <StatsCard />
           <LogCard />
           <Footer />

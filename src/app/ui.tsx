@@ -47,12 +47,25 @@ export function Note(props: { ok: boolean; text: string }): JSX.Element {
   return <Text class={props.ok ? "text-xs text-primary" : "text-xs text-destructive"}>{props.text}</Text>;
 }
 
-/** 一组「标题 + 数字」。 */
-export function Metric(props: { label: string; value: string }): JSX.Element {
+/** 一组「标题 + 数字」。`tone` 只给需要报警的读数用（比如注入失败 > 0）。 */
+export function Metric(props: { label: string; value: string; tone?: "normal" | "danger" }): JSX.Element {
   return (
     <View class="flex-1 flex-col gap-1">
       <Text class="text-xs text-muted-foreground">{props.label}</Text>
-      <Text class="text-sm font-semibold text-foreground">{props.value}</Text>
+      <Text
+        class={
+          props.tone === "danger"
+            ? "text-sm font-semibold text-destructive"
+            : "text-sm font-semibold text-foreground"
+        }
+      >
+        {props.value}
+      </Text>
     </View>
   );
+}
+
+/** 控件左边的一格读数：宽度固定，数字变了不会让布局跳。 */
+export function Value(props: { text: string }): JSX.Element {
+  return <Text class="w-16 text-right text-xs font-semibold text-foreground">{props.text}</Text>;
 }
