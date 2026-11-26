@@ -1,6 +1,6 @@
 {
   "name": "CvtMouse",
-  "id": "com.hkmv.cvtmouse",
+  "id": "top.codeslife.cvtmouse",
   "version": "0.1.0",
   "build": 1,
   "rust": ".",
