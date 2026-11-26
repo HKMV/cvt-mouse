@@ -1,0 +1,31 @@
+[package]
+name = "nsh-app-cvtmouse"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "通用鼠标滚轮无级变速：按滚动速度自动加速，慢滚保持原生手感"
+
+[workspace]
+
+[dependencies]
+nsh-core = "0.6.1"
+nsh-base = "0.6.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+    # GetTickCount64 / GetLocalTime：钩子里的时间戳与日志的时间戳。
+    "Win32_System_SystemInformation",
+    # GetModuleFileNameW：提权重启时要知道自己在哪。
+    "Win32_System_LibraryLoader",
+    # ShellExecuteW("runas")。
+    "Win32_UI_Shell",
+    # SendInput / GetAsyncKeyState / RegisterHotKey。
+    "Win32_UI_Input_KeyboardAndMouse",
+    # 低级鼠标钩子、WindowFromPoint、SystemParametersInfoW、GetMessageW。
+    "Win32_UI_WindowsAndMessaging",
+] }

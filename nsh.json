@@ -1,0 +1,13 @@
+{
+  "name": "CvtMouse",
+  "id": "com.hkmv.cvtmouse",
+  "version": "0.1.0",
+  "build": 1,
+  "rust": ".",
+  "appearance": "system",
+  "window": {
+    "title": "CvtMouse 滚轮变速",
+    "defaultSize": { "width": 880, "height": 760 },
+    "minSize": { "width": 720, "height": 560 }
+  }
+}
