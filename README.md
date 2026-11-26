@@ -94,8 +94,12 @@ nsh build        # 打包成可运行的应用
 App.tsx                 入口，只 mount（必须在仓库根：nsh 从同级解析 cvtmouse/native）
 src/                    Rust 后端
 ├─ lib.rs               crate 根 + Backend 门面（JSON 文本进出，nsh 的边界）
-├─ hook.rs              编排：钩子线程 + 注入线程 + decide()
+├─ hook/                编排：把 core 的判断接到 Windows 输入链路上
+│  ├─ mod.rs            全局引擎、生命周期、把平台信息填成 Env 交给 Policy
+│  ├─ proc.rs           钩子线程：WH_MOUSE_LL 回调、热键、消息循环
+│  └─ pump.rs           注入线程：按 8ms 节拍把积压的格数一格一格发出去
 ├─ core/                核心实现：纯逻辑，不碰 Win32、不碰文件系统
+│  ├─ decide.rs         要不要改、改多少（Policy/Act/Env，有单测）
 │  ├─ curve.rs          速度计、曲线插值、累加器、平滑泵（有单测）
 │  └─ config.rs         配置结构、默认值、校验
 └─ platform/            外部依赖
@@ -113,6 +117,9 @@ ui/                     TSX 界面
 ```
 
 分层的规矩只有一条：`core` 里出现 `windows_sys` 或 `std::fs` 就是错位了。
+`hook/` 之所以留在 `src/` 顶层而不是塞进 `core/`，就是因为它整个职责就是碰 Win32
+（`SetWindowsHookEx`、`SendInput`、消息循环）；`decide` 相反，它只是策略，所以进 `core/`
+——这样「要不要变速」能脱离 Windows 单测。
 
 ### 三个踩过的坑（都验证过，别再踩）
 
@@ -120,7 +127,7 @@ ui/                     TSX 界面
    `MSLLHOOKSTRUCT.mouseData` 的高 16 位。发送方**不要**自己 `<< 16`：那样不报错、
    `SendInput` 也返回成功，但系统会把整个 32 位值按 i16 饱和——正数变 `32767`、
    负数变 `-32768`（实测发 `0xFF880000`，钩子收到 `-32768`），等于每格只滚一行。
-   接收方（钩子）才要取高 16 位。见 `hook::wheel_mouse_data` 及其单测。
+   接收方（钩子）才要取高 16 位。见 `hook::pump::wheel_mouse_data` 及其单测。
 
 2. **注入事件的标记（魔数）必须是 32 位**。`MSLLHOOKSTRUCT.dwExtraInfo` 声明成
    `ULONG_PTR`，但低级钩子只保留低 32 位：用 64 位魔数会认不出自己注入的事件
