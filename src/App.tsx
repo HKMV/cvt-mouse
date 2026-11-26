@@ -12,7 +12,7 @@
 
 import { Scroll, signal, Text, View } from "nsh";
 import type { JSX } from "nsh";
-import { Button, NumberInput, Slider, Switch } from "nsh/base";
+import { Button, Collapsible, NumberInput, Slider, Switch } from "nsh/base";
 import { Area, Grid, Line, Plot, PlotAxis } from "nsh/base/plot";
 import * as api from "./app/api";
 import { Caption, Card, Metric, Note, Row, Value } from "./app/ui";
@@ -46,6 +46,8 @@ const config = signal<api.Config>(boot.config);
 const snap = signal<api.Snapshot | null>(null);
 const message = signal<{ ok: boolean; text: string } | null>(null);
 const tested = signal<api.SelfTest | null>(null);
+/** 顶部统计条是展开还是收起。 */
+const statsOpen = signal(false);
 
 /** 曲线三个旋钮的草稿：拖的时候只动它，松手才落盘（拖一次会来几十个 onChange）。 */
 const curve = signal({
@@ -187,6 +189,8 @@ function removeSkip(exe: string): void {
 function runSelfTest(): void {
   const result = api.selfTest();
   tested.set(result);
+  // 明细在统计条里，自检完直接摊开，不用再点一次。
+  statsOpen.set(true);
   message.set({
     ok: true,
     text: `自检：连滚 ${result.burst.detents} 格（每 ${result.burst.intervalMs}ms 一格）→ 输出 ${result.burst.out} 格`,
@@ -218,9 +222,9 @@ function statusDot(): string {
 
 function Header(): JSX.Element {
   return (
-    <View class="flex-row items-center gap-3 border-b border-border bg-card px-4 py-3">
+    <View class="flex-row items-center gap-3 border-b border-border bg-card px-4 py-2">
       <View class={statusDot()} />
-      <View class="flex-1 flex-col gap-1">
+      <View class="flex-1 flex-col">
         <Text class="text-base font-semibold text-foreground">CvtMouse 滚轮变速</Text>
         <Text class="text-xs text-muted-foreground">{statusText()}</Text>
       </View>
@@ -478,50 +482,79 @@ function ModeCard(): JSX.Element {
   );
 }
 
-function StatsCard(): JSX.Element {
-  /** wheel 单位 → 格，保留一位小数（细粒度滚轮一格会被拆成好几个事件）。 */
-  const notches = (units: number) => `${(units / 120).toFixed(1)} 格`;
-  const ratio = () => {
-    const state = snap()?.stats;
-    if (!state || state.inUnits === 0) return "—";
-    return `${(state.outUnits / state.inUnits).toFixed(2)}x`;
-  };
+/** wheel 单位 → 格，保留一位小数（细粒度滚轮一格会被拆成好几个事件）。 */
+function notches(units: number): string {
+  return `${(units / 120).toFixed(1)} 格`;
+}
+
+/** 累计加速比：发出去的格数 ÷ 进来的格数。 */
+function ratioText(): string {
+  const state = snap()?.stats;
+  if (!state || state.inUnits === 0) return "—";
+  return `${(state.outUnits / state.inUnits).toFixed(2)}x`;
+}
+
+/**
+ * 统计条：钉在标题栏下面，不随内容滚走；收起时只有一行累计量。
+ *
+ * 用 `nsh/base` 的 `Collapsible`，`open` 由这边持有，触发器是一个 `role="button"` 的 View。
+ */
+function StatsStrip(): JSX.Element {
+  /** 写成函数：组件体只跑一次，常量会冻在首帧。 */
+  const failed = () => snap()?.stats.injectFailed ?? 0;
   return (
-    <Card title="统计" hint="这次运行累计的进出量，可以直接核对加速比">
-      <View class="flex-row gap-3">
-        <Metric label="进来" value={notches(snap()?.stats.inUnits ?? 0)} />
-        <Metric label="发给应用" value={notches(snap()?.stats.outUnits ?? 0)} />
-        <Metric label="加速比" value={ratio()} />
-        <Metric label="事件" value={`${snap()?.stats.events ?? 0}`} />
-      </View>
-      <View class="flex-row gap-3">
-        <Metric label="原样放行" value={`${snap()?.stats.passed ?? 0}`} />
-        <Metric
-          label="注入失败"
-          value={`${snap()?.stats.injectFailed ?? 0}`}
-          tone={(snap()?.stats.injectFailed ?? 0) > 0 ? "danger" : "normal"}
-        />
-        <Metric label="当前速度" value={speedText(snap()?.stats.velocity ?? 0)} />
-        <Metric label="当前倍率" value={gainText(snap()?.stats.gain ?? 1)} />
-      </View>
-      <Caption>
-        {`最近一格原始值：${snap()?.stats.lastDelta ?? 0}（标准一格是 ±120；不是 ±120 说明鼠标在送细粒度值）`}
-      </Caption>
-      {tested() ? (
-        <View class="flex-col gap-1">
-          <Caption>自检明细（每 40ms 一格，连滚 12 格）</Caption>
-          <View class="flex-row flex-wrap gap-2">
-            {tested()!.steps.map((step, index) => (
-              <Text class="text-xs text-muted-foreground">
-                {`#${index + 1} ${step.velocity.toFixed(0)}/s ${gainText(step.gain)} → ${step.out}`}
-              </Text>
-            ))}
+    <Collapsible
+      class="border-b border-border bg-card"
+      open={statsOpen()}
+      reveal
+      content={
+        <View class="flex-col gap-3 px-4 pb-3">
+          <View class="flex-row gap-3">
+            <Metric label="进来" value={notches(snap()?.stats.inUnits ?? 0)} />
+            <Metric label="发给应用" value={notches(snap()?.stats.outUnits ?? 0)} />
+            <Metric label="加速比" value={ratioText()} />
+            <Metric label="事件" value={`${snap()?.stats.events ?? 0}`} />
           </View>
+          <View class="flex-row gap-3">
+            <Metric label="原样放行" value={`${snap()?.stats.passed ?? 0}`} />
+            <Metric label="注入失败" value={`${failed()}`} tone={failed() > 0 ? "danger" : "normal"} />
+            <Metric label="当前速度" value={speedText(snap()?.stats.velocity ?? 0)} />
+            <Metric label="当前倍率" value={gainText(snap()?.stats.gain ?? 1)} />
+          </View>
+          <Caption>
+            {`最近一格原始值：${snap()?.stats.lastDelta ?? 0}（标准一格是 ±120；不是 ±120 说明鼠标在送细粒度值）`}
+          </Caption>
+          {tested() ? (
+            <View class="flex-col gap-1">
+              <Caption>自检明细（每 40ms 一格，连滚 12 格）</Caption>
+              <View class="flex-row flex-wrap gap-2">
+                {tested()!.steps.map((step, index) => (
+                  <Text class="text-xs text-muted-foreground">
+                    {`#${index + 1} ${step.velocity.toFixed(0)}/s ${gainText(step.gain)} → ${step.out}`}
+                  </Text>
+                ))}
+              </View>
+            </View>
+          ) : null}
         </View>
-      ) : (
-        <Caption>点右上角「自检」可以离线跑一遍曲线，不碰真实鼠标。</Caption>
-      )}
-    </Card>
+      }
+    >
+      <View
+        class="flex-row items-center gap-4 px-4 py-1"
+        role="button"
+        onPress={() => statsOpen.set(!statsOpen())}
+      >
+        <Text class="text-xs font-medium text-foreground">统计</Text>
+        <Text class="text-xs text-muted-foreground">{`进来 ${notches(snap()?.stats.inUnits ?? 0)}`}</Text>
+        <Text class="text-xs text-muted-foreground">{`发出 ${notches(snap()?.stats.outUnits ?? 0)}`}</Text>
+        <Text class="text-xs font-semibold text-foreground">{ratioText()}</Text>
+        <Text class={failed() > 0 ? "text-xs font-semibold text-destructive" : "text-xs text-muted-foreground"}>
+          {`注入失败 ${failed()}`}
+        </Text>
+        <View class="flex-1" />
+        <Text class="text-xs text-muted-foreground">{statsOpen() ? "收起" : "展开"}</Text>
+      </View>
+    </Collapsible>
   );
 }
 
@@ -572,6 +605,7 @@ export function App(): JSX.Element {
   return (
     <View class="flex-1 flex-col bg-background">
       <Header />
+      <StatsStrip />
       {message() ? (
         <View class="bg-card px-4 py-2">
           <Note ok={message()!.ok} text={message()!.text} />
@@ -579,11 +613,10 @@ export function App(): JSX.Element {
       ) : null}
       {/* contentOffset 钉死从顶部开始：内容比窗口高时，默认落点不是顶部。 */}
       <Scroll class="flex-1" contentOffset={{ x: 0, y: 0 }}>
-        <View class="flex-col gap-3 p-4">
+        <View class="flex-col gap-3 px-4 pb-4 pt-1">
           <CurveCard />
           <ModeCard />
           <AppsCard />
-          <StatsCard />
           <LogCard />
           <Footer />
         </View>

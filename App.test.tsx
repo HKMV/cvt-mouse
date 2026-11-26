@@ -10,3 +10,17 @@ test("renders the settings page", async () => {
   expect(texts).toContain("按应用");
   expect(texts).toContain("统计");
 });
+
+test("统计条默认收起，点「展开」才出现明细", async () => {
+  const app = await open("./App.tsx");
+  // 收起时只有一行累计量：明细里的字段名不在树上。
+  expect(app.texts()).toContain("展开");
+  expect(app.texts()).not.toContain("原样放行");
+
+  await app.press("text:展开");
+
+  expect(app.texts()).toContain("原样放行");
+  expect(app.texts()).toContain("注入失败");
+  expect(app.texts()).toContain("收起");
+  expect(app.texts()).not.toContain("展开");
+});
