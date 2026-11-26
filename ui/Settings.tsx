@@ -14,10 +14,10 @@ import { Scroll, signal, Text, View } from "nsh";
 import type { JSX } from "nsh";
 import { Button, Collapsible, NumberInput, Slider, Switch } from "nsh/base";
 import { Area, Grid, Line, Plot, PlotAxis } from "nsh/base/plot";
-import * as api from "./app/api";
-import { Caption, Card, Metric, Note, Row, Value } from "./app/ui";
-import { bindWindow, installTray, interceptClose } from "./app/desktop";
-import { gainText, speedText } from "./app/format";
+import * as api from "./lib/api";
+import { Caption, Card, Metric, Note, Row, Value } from "./components/ui";
+import { bindWindow, installTray, interceptClose } from "./lib/desktop";
+import { gainText, speedText } from "./format";
 
 // ---- class 常量 ----------------------------------------------------------
 
@@ -130,7 +130,7 @@ function saveCurve(): void {
   applyConfig({ ...config(), curve: draftPoints() });
 }
 
-/** 和 `src/curve.rs` 的 `Curve::gain` 同一套算法，只为画预览。 */
+/** 和 `src/core/curve.rs` 的 `Curve::gain` 同一套算法，只为画预览。 */
 function gainAt(velocity: number): number {
   const points = draftPoints();
   if (velocity <= points[0][0]) return points[0][1];
@@ -597,7 +597,7 @@ function Footer(): JSX.Element {
   );
 }
 
-export function App(): JSX.Element {
+export function Settings(): JSX.Element {
   bindWindow();
   interceptClose();
   installTray({ enabled: () => config().enabled, onToggle: toggleEnabled });
@@ -624,3 +624,9 @@ export function App(): JSX.Element {
     </View>
   );
 }
+
+
+
+
+
+

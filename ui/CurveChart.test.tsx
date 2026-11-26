@@ -6,7 +6,7 @@
 // 只断言「配置 → 曲线信号 → 图表」这一段：滑块本身的拖动在 headless 里驱动不了
 // （轨道不是可 press 的视图，拖动还会被外层 `Scroll` 当成滚动）。
 import { afterAll, beforeAll, expect, open, test } from "nsh/test";
-import * as api from "./src/app/api";
+import * as api from "./lib/api";
 
 /** 跑之前用户自己的配置，收尾时写回。 */
 const original = api.boot().config;
@@ -35,7 +35,7 @@ afterAll(() => {
 });
 
 test("默认曲线：读数与纵轴刻度对得上", async () => {
-  const app = await open("./App.tsx");
+  const app = await open("../App.tsx");
   const texts = app.texts();
   expect(texts).toContain("6 格/秒");
   expect(texts).toContain("3.8x");
@@ -46,7 +46,7 @@ test("默认曲线：读数与纵轴刻度对得上", async () => {
 
 test("把高速倍率调到 12，纵轴刻度和读数跟着变", async () => {
   useCurve(6, 3.8, 12);
-  const app = await open("./App.tsx");
+  const app = await open("../App.tsx");
   const texts = app.texts();
   expect(texts).toContain("12.0x");
   // 纵轴跟着换成 5x/10x（d3 在 [1,12] 上取的整齐步长），原来那排 2x/4x/6x/8x 没了。
@@ -57,7 +57,10 @@ test("把高速倍率调到 12，纵轴刻度和读数跟着变", async () => {
 
 test("把起点调到 2，虚线位置跟着变", async () => {
   useCurve(2, 3.8, 8.1);
-  const app = await open("./App.tsx");
+  const app = await open("../App.tsx");
   expect(app.texts()).toContain("2 格/秒");
   useCurve(6, 3.8, 8.1);
 });
+
+
+

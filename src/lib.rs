@@ -6,20 +6,24 @@
 //! * 动作返回 `{"ok":true}` 或 `{"ok":false,"error":"…"}`，错误文案已经能直接
 //!   显示给用户。
 //!
-//! 界面（`App.tsx` / `src/app/`）只认这些方法，不碰 Win32。
+//! 界面（`ui/`）只认这些方法，不碰 Win32。
+//!
+//! # 分层
+//!
+//! * [`core`] —— 核心实现：曲线算法、配置结构与校验，纯逻辑，可单测；
+//! * [`platform`] —— 外部依赖：Win32、时钟、日志落盘、配置存盘；
+//! * [`hook`] —— 编排：钩子线程、注入线程、`decide()`。
 
-mod clock;
-mod config;
-mod curve;
+mod core;
 mod hook;
-mod log;
-mod win32;
+mod platform;
 
 use nsh_core::prelude::*;
 use serde_json::json;
 
-use crate::config::{Config, Mode};
-use crate::curve::{Accumulator, Meter};
+use crate::core::config::{Config, Mode};
+use crate::core::curve::{Accumulator, Meter};
+use crate::platform::{log, store, win32};
 
 /// 程序版本。
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -75,7 +79,7 @@ fn apply_config(mut config: Config) -> Result<(), String> {
             }
         }
     }
-    config.save()?;
+    store::save_config(&config)?;
     hook::reload(config);
     Ok(())
 }
@@ -85,7 +89,7 @@ impl Backend {
     /// 界面启动时调一次：配置、权限、路径、系统当前的每格行数。
     pub fn boot() -> String {
         log::start();
-        let config = Config::load();
+        let config = store::load_config();
         log::info(format!(
             "CvtMouse {VERSION} 启动（{}）",
             if win32::is_elevated() { "管理员权限" } else { "普通权限" }
@@ -102,7 +106,7 @@ impl Backend {
                 "version": VERSION,
                 "elevated": win32::is_elevated(),
                 "hint": hint(),
-                "configPath": Config::path().to_string_lossy(),
+                "configPath": store::config_path().to_string_lossy(),
                 "logDir": log::dir().to_string_lossy(),
                 "systemLines": win32::wheel_lines(),
             }
@@ -243,3 +247,4 @@ impl Backend {
         .to_string()
     }
 }
+

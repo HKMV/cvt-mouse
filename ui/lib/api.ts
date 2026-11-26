@@ -3,7 +3,7 @@
 //! 界面这一侧只认这个文件：它把 Rust 那边 `Backend` 模块的 JSON 文本解析成
 //! 类型化的对象。页面里不出现 `JSON.parse`，也不直接 import `cvtmouse/native`。
 //!
-//! 类型是手写的，和 `src/lib.rs` / `src/config.rs` 一一对应；字段改名时两边一起改。
+//! 类型是手写的，和 `src/lib.rs` / `src/core/config.rs` 一一对应；字段改名时两边一起改。
 
 import { Backend } from "cvtmouse/native";
 
@@ -136,3 +136,4 @@ export function setSystemLines(lines: number): Result {
 export function selfTest(): SelfTest {
   return JSON.parse(Backend.selfTest()) as SelfTest;
 }
+

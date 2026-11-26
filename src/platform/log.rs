@@ -32,7 +32,7 @@ fn inner() -> &'static Mutex<Inner> {
 
 /// 一行带时间戳的日志。
 fn push(level: &str, message: String) {
-    let line = format!("{} {level} {message}", crate::clock::stamp());
+    let line = format!("{} {level} {message}", super::clock::stamp());
     let mut guard = match inner().lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
@@ -117,7 +117,7 @@ fn flush() {
     if std::fs::create_dir_all(&directory).is_err() {
         return;
     }
-    let name = format!("cvtmouse-{}.log", crate::clock::date());
+    let name = format!("cvtmouse-{}.log", super::clock::date());
     let path = directory.join(name);
     use std::io::Write;
     if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
@@ -126,3 +126,4 @@ fn flush() {
         }
     }
 }
+

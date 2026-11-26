@@ -1,14 +1,16 @@
-//! 配置的读写与校验。
+//! 配置的结构、默认值与校验。
 //!
-//! 落在 `%APPDATA%\CvtMouse\config.json`。字段名用 camelCase：这份 JSON 既是
-//! 磁盘格式，也是界面提交草稿的格式，两边同一套名字，省掉一次翻译。
+//! 字段名用 camelCase：这份 JSON 既是磁盘格式，也是界面提交草稿的格式，
+//! 两边同一套名字，省掉一次翻译。
+//!
+//! 这里**不碰文件系统**：读盘和落盘在 [`crate::platform::store`]，所以本模块的
+//! 校验逻辑可以直接单测。
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::curve::{Curve, DEFAULT_CURVE};
+use super::curve::{Curve, DEFAULT_CURVE};
 
 /// 变速的实现方式。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,39 +68,6 @@ impl Default for Config {
 }
 
 impl Config {
-    /// 配置文件路径。
-    pub fn path() -> PathBuf {
-        let base = std::env::var_os("APPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir);
-        base.join("CvtMouse").join("config.json")
-    }
-
-    /// 读盘；文件不在、或者读坏了都退回默认值（不覆盖磁盘上那份，交给用户改）。
-    pub fn load() -> Config {
-        let path = Self::path();
-        match std::fs::read_to_string(&path) {
-            Ok(text) => match serde_json::from_str::<Config>(&text) {
-                Ok(config) => config,
-                Err(error) => {
-                    crate::log::warn(format!("配置解析失败，先用默认值：{error}"));
-                    Config::default()
-                }
-            },
-            Err(_) => Config::default(),
-        }
-    }
-
-    /// 落盘。目录不存在就建。
-    pub fn save(&self) -> Result<(), String> {
-        let path = Self::path();
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|error| format!("建目录失败：{error}"))?;
-        }
-        let text = serde_json::to_string_pretty(self).map_err(|error| format!("序列化失败：{error}"))?;
-        std::fs::write(&path, text).map_err(|error| format!("写文件失败：{error}"))
-    }
-
     /// 校验一份（可能是界面送来的）配置。
     ///
     /// 错误文案是给用户直接看的：说清哪个值不对、该在什么范围。
@@ -141,5 +110,39 @@ impl Config {
     /// 这个进程是不是完全不接管。
     pub fn is_skipped(&self, exe: &str) -> bool {
         self.skip.iter().any(|item| item.eq_ignore_ascii_case(exe))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_is_valid() {
+        Config::default().validate().unwrap();
+    }
+
+    #[test]
+    fn gain_out_of_range_is_rejected() {
+        let mut config = Config::default();
+        config.curve = vec![(0.0, 1.0), (12.0, 50.0)];
+        let error = config.validate().unwrap_err();
+        assert!(error.contains("倍率"), "错误文案要说清是倍率：{error}");
+    }
+
+    #[test]
+    fn system_mode_lines_must_be_in_range() {
+        let mut config = Config::default();
+        config.mode = Mode::System;
+        config.system_lines = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn app_gain_lookup_ignores_case() {
+        let mut config = Config::default();
+        config.apps.insert("code.exe".to_string(), 2.0);
+        assert_eq!(config.app_gain("CODE.EXE"), 2.0);
+        assert_eq!(config.app_gain("other.exe"), 1.0);
     }
 }

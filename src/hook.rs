@@ -4,7 +4,7 @@
 //!
 //! 滚轮的一格是设备固件写死的 HID 报文（±120），「一格滚几行」是**主机侧**解释
 //! 出来的。所以变速只有两条路：改系统那个全局固定值（`SPI_SETWHEELSCROLLLINES`，
-//! 见 [`crate::win32`]），或者在输入链路上把事件拦下来自己换算。要「按速度变」，
+//! 见 [`crate::platform::win32`]），或者在输入链路上把事件拦下来自己换算。要「按速度变」，
 //! 只能是后者。
 //!
 //! # 四条不能违反的规矩
@@ -36,9 +36,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     UnhookWindowsHookEx, WH_MOUSE_LL, WM_HOTKEY, WM_MOUSEWHEEL, WM_QUIT,
 };
 
-use crate::config::{Config, Mode};
-use crate::curve::{Accumulator, Curve, Meter};
-use crate::win32::Target;
+use crate::core::config::{Config, Mode};
+use crate::core::curve::{self, Accumulator, Curve, Meter};
+use crate::platform::win32::Target;
+use crate::platform::{clock, log, store, win32};
 
 /// 自己注入的事件的标记（`CVTM`）。
 ///
@@ -189,7 +190,7 @@ impl Engine {
         self.acc.reset();
         SMOOTH.store(config.smooth, Ordering::Relaxed);
         self.config = config;
-        crate::log::info(format!(
+        log::info(format!(
             "配置已生效：{}，曲线 {} 个断点，按应用规则 {} 条，跳过 {} 个进程，平滑{}",
             if self.config.enabled { "已开启" } else { "已关闭" },
             self.curve.points().len(),
@@ -201,13 +202,13 @@ impl Engine {
 
     /// 光标下那个窗口的程序名与是否提权（250ms 缓存）。
     fn target(&mut self) -> Target {
-        let now = crate::clock::now_ms();
+        let now = clock::now_ms();
         if now.saturating_sub(self.cache.at) < 250 {
             if let Some(target) = &self.cache.target {
                 return target.clone();
             }
         }
-        let target = crate::win32::cursor_target();
+        let target = win32::cursor_target();
         self.cache.at = now;
         self.cache.target = Some(target.clone());
         target
@@ -216,7 +217,7 @@ impl Engine {
 
 /// 全局唯一的引擎。
 pub fn engine() -> &'static Mutex<Engine> {
-    ENGINE.get_or_init(|| Mutex::new(Engine::new(Config::load())))
+    ENGINE.get_or_init(|| Mutex::new(Engine::new(store::load_config())))
 }
 
 fn lock() -> std::sync::MutexGuard<'static, Engine> {
@@ -255,13 +256,13 @@ pub fn set_enabled(on: bool) {
         state.config.enabled = on;
         state.meter = Meter::default();
         state.acc.reset();
-        let saved = state.config.save();
+        let saved = store::save_config(&state.config);
         (state.config.enabled, saved)
     };
     clear_pending();
-    crate::log::info(format!("总开关：{}", if enabled { "开启" } else { "关闭" }));
+    log::info(format!("总开关：{}", if enabled { "开启" } else { "关闭" }));
     if let Err(error) = saved {
-        crate::log::warn(format!("配置存盘失败：{error}"));
+        log::warn(format!("配置存盘失败：{error}"));
     }
 }
 
@@ -270,13 +271,13 @@ fn spawn() {
         .name("cvtmouse-hook".to_string())
         .spawn(run);
     if let Err(error) = spawned {
-        crate::log::warn(format!("钩子线程起不来：{error}"));
+        log::warn(format!("钩子线程起不来：{error}"));
     }
     let injector = std::thread::Builder::new()
         .name("cvtmouse-inject".to_string())
         .spawn(injector_loop);
     if let Err(error) = injector {
-        crate::log::warn(format!("注入线程起不来：{error}"));
+        log::warn(format!("注入线程起不来：{error}"));
     }
 }
 
@@ -307,7 +308,7 @@ fn injector_loop() {
 
         // 平滑：按积压量分档发（见 `curve::pump_step`）。不平滑：一次发完。
         let smooth = SMOOTH.load(Ordering::Relaxed);
-        let step = crate::curve::pump_step(pump.pending, smooth);
+        let step = curve::pump_step(pump.pending, smooth);
         pump.pending -= step;
         drop(pump);
 
@@ -322,7 +323,7 @@ fn injector_loop() {
             }
             let fails = FAILS_IN_A_ROW.fetch_add(1, Ordering::Relaxed) + 1;
             if fails == MAX_FAILS {
-                crate::log::warn(
+                log::warn(
                     "注入连续失败：多半是目标窗口提权了（UIPI 拦掉注入）。已自动关闭变速，滚轮恢复原生。",
                 );
                 set_enabled(false);
@@ -357,13 +358,13 @@ fn run() {
         let hook = SetWindowsHookExW(WH_MOUSE_LL, Some(hook_proc), ptr::null_mut(), 0);
         if hook.is_null() {
             INSTALLED.store(false, Ordering::SeqCst);
-            crate::log::warn(
+            log::warn(
                 "装不上全局鼠标钩子：滚轮不会变速。常见原因是安全软件拦了低级键盘/鼠标钩子。",
             );
             return;
         }
         INSTALLED.store(true, Ordering::SeqCst);
-        crate::log::info("全局滚轮钩子已装上（WH_MOUSE_LL）");
+        log::info("全局滚轮钩子已装上（WH_MOUSE_LL）");
 
         // 热键是「一键停用」的保险：系统里抢这个组合的程序不少，所以按顺序试几个。
         let candidates: [(u32, u32, &str); 3] = [
@@ -383,9 +384,9 @@ fn run() {
             }
         }
         if bound.is_empty() {
-            crate::log::warn("热键都没注册上（Ctrl+Alt+S 等被占用），开关请用界面或托盘菜单");
+            log::warn("热键都没注册上（Ctrl+Alt+S 等被占用），开关请用界面或托盘菜单");
         } else {
-            crate::log::info(format!("热键 {bound}：一键开关变速"));
+            log::info(format!("热键 {bound}：一键开关变速"));
         }
 
         let mut message: MSG = std::mem::zeroed();
@@ -457,7 +458,7 @@ fn decide(delta: i16, extra: usize, flags: u32) -> Act {
     let skipped = state.config.is_skipped(&target.exe);
     let app_gain = state.config.app_gain(&target.exe);
     // 提权窗口：我们的注入会被 UIPI 丢掉，拦下来等于把滚轮弄死，所以原样放行。
-    let blocked = target.elevated && !crate::win32::is_elevated();
+    let blocked = target.elevated && !win32::is_elevated();
     if skipped || blocked {
         state.stats.passed += 1;
         state.stats.exe = target.exe;
@@ -465,7 +466,7 @@ fn decide(delta: i16, extra: usize, flags: u32) -> Act {
     }
 
     let units = delta as i32;
-    let velocity = state.meter.velocity_units(crate::clock::now_ms(), units);
+    let velocity = state.meter.velocity_units(clock::now_ms(), units);
     let gain = state.curve.gain(velocity) * app_gain;
 
     state.stats.velocity = velocity;
@@ -521,7 +522,7 @@ fn trace(state: &mut Engine, message: String) {
     let left = TRACE_LEFT.load(Ordering::Relaxed);
     if left > 0 {
         TRACE_LEFT.store(left - 1, Ordering::Relaxed);
-        crate::log::info(message);
+        log::info(message);
     }
     let _ = state;
 }
@@ -628,3 +629,5 @@ mod tests {
         assert_eq!(MAGIC as usize as u32, MAGIC);
     }
 }
+
+

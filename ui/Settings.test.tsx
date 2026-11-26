@@ -3,7 +3,7 @@
 import { expect, open, test } from "nsh/test";
 
 test("renders the settings page", async () => {
-  const app = await open("./App.tsx");
+  const app = await open("../App.tsx");
   const texts = app.texts();
   expect(texts).toContain("CvtMouse 滚轮变速");
   expect(texts).toContain("变速曲线");
@@ -12,7 +12,7 @@ test("renders the settings page", async () => {
 });
 
 test("统计条默认收起，点「展开」才出现明细", async () => {
-  const app = await open("./App.tsx");
+  const app = await open("../App.tsx");
   // 收起时只有一行累计量：明细里的字段名不在树上。
   expect(app.texts()).toContain("展开");
   expect(app.texts()).not.toContain("原样放行");
@@ -24,3 +24,5 @@ test("统计条默认收起，点「展开」才出现明细", async () => {
   expect(app.texts()).toContain("收起");
   expect(app.texts()).not.toContain("展开");
 });
+
+

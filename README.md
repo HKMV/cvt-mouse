@@ -83,22 +83,36 @@
 
 ```sh
 nsh run          # 起开发宿主（TSX 改动热更新，Rust 改动重建并重启）
-nsh check        # cargo check + App.tsx 类型检查
-nsh test         # cargo test + App.test.tsx（无窗口）
+nsh check        # cargo check + 入口与 ui/ 的类型检查
+nsh test         # cargo test + ui/ 下的界面测试（无窗口）
 nsh build        # 打包成可运行的应用
 ```
 
-`src/` 分工：
+目录按「核心 / 外部依赖」分开，改算法不用碰系统接口，改界面不用碰 Win32：
 
-| 文件 | 内容 |
-| --- | --- |
-| `src/curve.rs` | 纯算法：速度计、曲线插值、累加器、平滑泵。**一行 Win32 都没有**，可完整单测 |
-| `src/hook.rs` | 钩子线程 + 注入线程 + 决策 |
-| `src/win32.rs` | 权限、提权重启、光标下窗口（含是否提权）、系统行数 |
-| `src/config.rs` | 配置读写与校验 |
-| `src/log.rs` | 内存环形缓冲 + 500ms 落盘（钩子回调里禁止 IO） |
-| `src/lib.rs` | 后端接口（JSON 文本进出） |
-| `src/app/` | 界面：`api.ts` 是唯一入口，`desktop.ts` 管托盘 |
+```text
+App.tsx                 入口，只 mount（必须在仓库根：nsh 从同级解析 cvtmouse/native）
+src/                    Rust 后端
+├─ lib.rs               crate 根 + Backend 门面（JSON 文本进出，nsh 的边界）
+├─ hook.rs              编排：钩子线程 + 注入线程 + decide()
+├─ core/                核心实现：纯逻辑，不碰 Win32、不碰文件系统
+│  ├─ curve.rs          速度计、曲线插值、累加器、平滑泵（有单测）
+│  └─ config.rs         配置结构、默认值、校验
+└─ platform/            外部依赖
+   ├─ win32.rs          权限、提权重启、光标下窗口、系统行数
+   ├─ clock.rs          时间戳（SYSTEMTIME）
+   ├─ log.rs            内存环形缓冲 + 500ms 落盘（钩子回调里禁止 IO）
+   └─ store.rs          config.json 的路径与读写
+ui/                     TSX 界面
+├─ Settings.tsx         整页设置
+├─ format.ts            倍率/速度的文字
+├─ components/ui.tsx    卡片、一行设置、读数（只有布局，没有控件）
+└─ lib/                外部依赖
+   ├─ api.ts            唯一 import cvtmouse/native 的地方
+   └─ desktop.ts        托盘图标 + 关窗收进托盘
+```
+
+分层的规矩只有一条：`core` 里出现 `windows_sys` 或 `std::fs` 就是错位了。
 
 ### 三个踩过的坑（都验证过，别再踩）
 
