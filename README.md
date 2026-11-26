@@ -11,6 +11,18 @@
 
 用 Rust 写核心（Win32 低级鼠标钩子 + 注入），界面用 [nsh](https://github.com/longbridge/nsh)（TSX）。
 
+## 界面
+
+![设置页：变速曲线与实时读数](assets/screenshots/settings-zh.png)
+
+![实现方式、修饰键放行与按应用配置](assets/screenshots/mode-zh.png)
+
+日志级别分「界面」和「文件」两档、各四档（错误 / 警告 / 信息 / 调试）：低于选定级别的
+记录左边不进界面、右边不写文件。平时界面 `信息`、文件 `调试`；要排查就把
+`%APPDATA%\CvtMouse\logs` 下当天的文件发出来。
+
+![日志级别：界面 INFO、文件 DEBUG](assets/screenshots/log-level-zh.png)
+
 ## 为什么滚轮必须走钩子
 
 滚轮一格是鼠标固件写死的 HID 报文（`±120` 个 wheel 单位），而「一格滚几行」是**主机侧**
@@ -143,9 +155,12 @@ ui/                     TSX 界面
 └─ lib/                外部依赖
    ├─ api.ts            唯一 import cvtmouse/native 的地方
    └─ desktop.ts        托盘图标 + 关窗收进托盘
-assets/                 图标
+assets/                 图标与截图
 ├─ icon.svg             设计源文件，改这个
-└─ icon.png             1024×1024，`nsh.json` 的 `"icon"` 指它（`nsh package` 用）
+├─ icon.png             1024×1024，`nsh.json` 的 `"icon"` 指它（`nsh package` 用）
+└─ screenshots/         README 里的界面截图（中英文各一套时按 `-zh` / `-en` 分开）
+.github/workflows/      推 `v*` tag 自动打包发版（见下面「发布」）
+tools/notes-reflow.py   发布说明的软换行合并（CI 兜底 + 本地自查）
 ```
 
 窗口是**无边框**的（`nsh.json` 里 `"frame": "none"`）：系统连标题栏、边框和三个
@@ -193,6 +208,35 @@ assets/                 图标
 
 另外两道保险也留着：单个事件超过 2 格（`MAX_SANE_UNITS`）或速度超过 200 格/秒
 （`MAX_SANE_VELOCITY`）一律原样放行——那不是人手滚出来的，放大它只会帮倒忙。
+
+## 发布
+
+版本号写在**两处**，发版前都要改（CI 会核对，不一致直接失败）：`Cargo.toml` 的
+`version` 和 `nsh.json` 的 `version`——后者才是 `nsh package` 用的那个，也是界面和
+exe 属性页显示的那个。
+
+```sh
+# 1. 写发布说明。一段一行、一项一行，别按 80 列手工折行：
+#    Release 页面把单个换行当成真的换行，折过的正文每行只走半截就断。
+#    本地可以先自查一次（有折行会返回 1 并告诉你能合到几行）：
+python3 tools/notes-reflow.py --check notes.txt
+
+# 2. 打 tag。--cleanup=verbatim 不能省：不加时 git 把 `## 标题` 这种以 `#`
+#    开头的行当注释剥掉，Release 页面只剩一串没有分段的 bullet。
+git tag -a v0.1.0 -F notes.txt --cleanup=verbatim
+git push origin v0.1.0
+```
+
+推上去之后 `.github/workflows/release.yml` 在 `windows-latest` 上：
+
+1. 检出这个 tag，装 Rust stable 和 nsh；
+2. 核对 tag 与 `Cargo.toml`、`nsh.json` 的版本；
+3. 跑 `package.ps1`（`opt-level=z` + `lto=fat`，约 7 分钟），产物改名成
+   `CvtMouse-<tag>-windows-x64.zip`（程序目录 + README + LICENSE）；
+4. 生成 `SHA256SUMS.txt`，用 tag 说明当发布正文，建 Release（已存在则只覆盖产物和正文）。
+
+想重发同一个 tag：Actions 页面手动 Run workflow、填 tag 名即可，不用重建 tag。
+发布说明里如果混进了手工折行，CI 会用 `tools/notes-reflow.py` 自动合并并留一条 warning。
 
 ## 许可证
 
