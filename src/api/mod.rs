@@ -77,6 +77,8 @@ impl Backend {
     pub fn boot() -> String {
         log::start();
         let config = store::load_config();
+        // 门槛要在下面这几行之前落地，否则启动时的记录会按默认级别走。
+        log::set_levels(config.log_level, config.log_file_level);
         log::info(format!(
             "CvtMouse {VERSION} 启动（{}）",
             if win32::is_elevated() { "管理员权限" } else { "普通权限" }

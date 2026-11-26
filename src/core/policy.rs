@@ -56,8 +56,8 @@ pub struct Policy {
     meter: Meter,
     acc: Accumulator,
     pub stats: Stats,
-    /// 这一轮该记的日志；由调用方取走再决定落到哪（`core` 不碰日志）。
-    trace: Option<String>,
+    /// 这一轮该记的日志（`Debug` 级）；由调用方取走再决定落到哪（`core` 不碰日志）。
+    debug: Option<String>,
 }
 
 impl Policy {
@@ -67,7 +67,7 @@ impl Policy {
             meter: Meter::default(),
             acc: Accumulator::default(),
             stats: Stats::default(),
-            trace: None,
+            debug: None,
         }
     }
 
@@ -89,8 +89,8 @@ impl Policy {
     }
 
     /// 取走这一轮要落的诊断行。
-    pub fn take_trace(&mut self) -> Option<String> {
-        self.trace.take()
+    pub fn take_debug(&mut self) -> Option<String> {
+        self.debug.take()
     }
 
     /// 这一格要不要改、改成多少。
@@ -141,7 +141,7 @@ impl Policy {
         // 这条是安全阀——没有它，别的软件注入的大增量（或回灌成的环）会被我们成倍放大。
         if units.abs() > MAX_SANE_UNITS || velocity > MAX_SANE_VELOCITY {
             self.stats.passed += 1;
-            self.trace = Some(format!(
+            self.debug = Some(format!(
                 "放行（异常事件）原始={units} 速度={velocity:.0}/s 倍率={gain:.2} extra={extra:x} flags={flags:x} 目标={}",
                 env.exe
             ));
@@ -159,7 +159,7 @@ impl Policy {
 
         // 留证据：快滚时（或者收到非标准值）把原始数据记下来，用完就停。
         if velocity >= 8.0 || units % NOTCH != 0 {
-            self.trace = Some(format!(
+            self.debug = Some(format!(
                 "滚轮 原始={units} 速度={velocity:.0}/s 倍率={gain:.2} 输出={out} extra={extra:x} 注入={} 目标={}",
                 flags & LLMHF_INJECTED != 0,
                 env.exe

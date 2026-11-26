@@ -45,7 +45,8 @@ pub fn spawn() {
         .name("cvtmouse-inject".to_string())
         .spawn(injector_loop);
     if let Err(error) = spawned {
-        log::warn(format!("注入线程起不来：{error}"));
+        // 没有注入线程就等于「拦下来但不发」：变速整体失效，和装不上钩子同档。
+        log::error(format!("注入线程起不来：{error}"));
     }
 }
 

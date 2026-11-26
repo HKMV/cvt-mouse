@@ -54,8 +54,8 @@ static INSTALLED: AtomicBool = AtomicBool::new(false);
 static INJECT_FAILED: AtomicU64 = AtomicU64::new(0);
 /// 平滑输出开关（配置里的 `smooth`），注入线程每一拍读一次。
 static SMOOTH: AtomicBool = AtomicBool::new(true);
-/// 还能记多少行诊断（每次运行最多这么多，用完就停，免得刷爆日志）。
-static TRACE_LEFT: AtomicU32 = AtomicU32::new(400);
+/// 还能记多少行逐格诊断（每次运行最多这么多，用完就停，免得刷爆日志）。
+static DEBUG_LEFT: AtomicU32 = AtomicU32::new(400);
 
 /// 全局唯一的引擎。
 static ENGINE: OnceLock<Mutex<Engine>> = OnceLock::new();
@@ -89,6 +89,8 @@ impl Engine {
     fn apply(&mut self, config: Config) {
         self.policy.apply(&config);
         SMOOTH.store(config.smooth, Ordering::Relaxed);
+        // 级别先落地，下面这几行才会按新门槛走。
+        log::set_levels(config.log_level, config.log_file_level);
         self.config = config;
         log::info(format!(
             "配置已生效：{}，曲线 {} 个断点，按应用规则 {} 条，跳过 {} 个进程，平滑{}",
@@ -145,7 +147,8 @@ pub fn install(config: Config) {
 fn tune_window_frame() {
     for _ in 0..5 {
         if win32::soften_window_frame() {
-            log::info("窗口边框：已改成无描边 + 圆角".to_string());
+            // 启动细节：成了就不必让用户看见，失败才值得一条 warn。
+            log::debug("窗口边框：已改成无描边 + 圆角".to_string());
             return;
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -190,7 +193,8 @@ pub fn set_enabled(on: bool) {
     pump::clear_pending();
     log::info(format!("总开关：{}", if enabled { "开启" } else { "关闭" }));
     if let Err(error) = saved {
-        log::warn(format!("配置存盘失败：{error}"));
+        // 用户刚点的那一下没生效：得说清是存盘失败，不能只是「记一笔」。
+        log::error(format!("配置存盘失败：{error}"));
     }
 }
 
@@ -221,18 +225,19 @@ pub(crate) fn decide(delta: i16, extra: usize, flags: u32) -> Act {
         now_ms: clock::now_ms(),
     };
     let act = state.policy.decide(&state.config, delta, &env, extra, flags);
-    if let Some(line) = state.policy.take_trace() {
-        trace(line);
+    if let Some(line) = state.policy.take_debug() {
+        debug_line(line);
     }
     act
 }
 
-/// 记一行诊断（每次运行最多 [`TRACE_LEFT`] 行，用完就停，免得刷爆日志）。
-pub(crate) fn trace(message: String) {
-    let left = TRACE_LEFT.load(Ordering::Relaxed);
+/// 记一行逐格诊断（`Debug` 级别；每次运行最多 [`DEBUG_LEFT`] 行，用完就停，
+/// 免得刷爆日志）。默认界面上看不见这些行，文件里有。
+pub(crate) fn debug_line(message: String) {
+    let left = DEBUG_LEFT.load(Ordering::Relaxed);
     if left > 0 {
-        TRACE_LEFT.store(left - 1, Ordering::Relaxed);
-        log::info(message);
+        DEBUG_LEFT.store(left - 1, Ordering::Relaxed);
+        log::debug(message);
     }
 }
 

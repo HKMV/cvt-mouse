@@ -23,6 +23,20 @@ pub enum Mode {
     System,
 }
 
+/// 日志级别：从「只说错误」到「什么都记」。
+///
+/// 声明顺序就是严重程度的顺序，所以过滤可以直接比大小：一条记录的级别 `<=` 阈值
+/// 就该输出。序列化成小写字符串（`"info"`），界面用同一套名字。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Level {
+    Error,
+    Warn,
+    #[default]
+    Info,
+    Debug,
+}
+
 /// 一份配置。
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -47,6 +61,14 @@ pub struct Config {
     pub system_lines: u32,
     /// 进兼容模式之前系统的原始行数，退出时还原。
     pub original_lines: Option<u32>,
+    /// 界面上的日志（内存环形缓冲）只留这一级及以上。
+    ///
+    /// 默认 `Info`：逐格决策行是 `Debug`，平时不该把界面刷满。
+    pub log_level: Level,
+    /// 写文件的日志只留这一级及以上。
+    ///
+    /// 默认 `Debug`：出问题时事后能查（`measure.ps1` 这类实测脚本也读这些行）。
+    pub log_file_level: Level,
 }
 
 impl Default for Config {
@@ -63,6 +85,8 @@ impl Default for Config {
             smooth: true,
             system_lines: 3,
             original_lines: None,
+            log_level: Level::Info,
+            log_file_level: Level::Debug,
         }
     }
 }
@@ -144,5 +168,31 @@ mod tests {
         config.apps.insert("code.exe".to_string(), 2.0);
         assert_eq!(config.app_gain("CODE.EXE"), 2.0);
         assert_eq!(config.app_gain("other.exe"), 1.0);
+    }
+
+    #[test]
+    fn log_levels_default_to_quiet_ui_and_verbose_file() {
+        // 界面默认只要 Info 及以上（逐格决策行是 Debug，不该刷界面）；
+        // 文件默认到 Debug（事后排查、实测脚本都要读这些行）。
+        let config = Config::default();
+        assert_eq!(config.log_level, Level::Info);
+        assert_eq!(config.log_file_level, Level::Debug);
+    }
+
+    #[test]
+    fn level_order_goes_from_quiet_to_loud() {
+        // 过滤用的是 `记录级别 <= 阈值`，所以这个顺序就是「阈值」的语义，别改。
+        assert!(Level::Error < Level::Warn);
+        assert!(Level::Warn < Level::Info);
+        assert!(Level::Info < Level::Debug);
+    }
+
+    #[test]
+    fn level_is_written_as_a_lowercase_word() {
+        let text = serde_json::to_string(&Level::Debug).unwrap();
+        assert_eq!(text, "\"debug\"");
+        assert_eq!(serde_json::from_str::<Level>("\"warn\"").unwrap(), Level::Warn);
+        // 拼错不该静默变成默认值：整个配置解析失败，由 store 退回默认并记一条 warn。
+        assert!(serde_json::from_str::<Level>("\"verbose\"").is_err());
     }
 }

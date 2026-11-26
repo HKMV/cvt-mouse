@@ -31,7 +31,8 @@ pub fn spawn() {
         .name("cvtmouse-hook".to_string())
         .spawn(run);
     if let Err(error) = spawned {
-        log::warn(format!("钩子线程起不来：{error}"));
+        // 线程都没起来，钩子必然装不上：和「装不上钩子」同一个严重程度。
+        log::error(format!("钩子线程起不来：{error}"));
     }
 }
 
@@ -46,7 +47,8 @@ fn run() {
         let hook = SetWindowsHookExW(WH_MOUSE_LL, Some(hook_proc), ptr::null_mut(), 0);
         if hook.is_null() {
             INSTALLED.store(false, Ordering::SeqCst);
-            log::warn(
+            // 核心功能彻底不工作：这是 error，不是「留意一下」。
+            log::error(
                 "装不上全局鼠标钩子：滚轮不会变速。常见原因是安全软件拦了低级键盘/鼠标钩子。",
             );
             return;
