@@ -10,8 +10,8 @@ description = "鼠标无级变速：滚轮按滚动速度自动加速、慢滚�
 [workspace]
 
 [dependencies]
-nsh-core = "0.6.1"
-nsh-base = "0.6.1"
+nsh-core = "0.7.1"
+nsh-base = "0.7.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

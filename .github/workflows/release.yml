@@ -47,12 +47,11 @@ env:
   BIN: CvtMouse
   # push 事件取 tag 名，手动触发取输入；后续所有步骤都用这一个变量。
   TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
-  # nsh 必须钉版本，不能用安装脚本默认的 latest。v0.1.0 第一次发版就是这么挂的：
-  # 本机验证的是 0.6.1，而上游 2026-11-25 把 latest 变成了 0.7.1，`nsh package`
-  # 直接报「these dependencies are built for another nsh … requires nsh-core ^0.6.1」
-  # 退出 1（本机用 0.7.1 复现过，见 README 的「发布」一节）。
-  # 升级 nsh 是另一件事：要同时改 nsh.json / Cargo.toml 里的 nsh 依赖并重新验一遍。
-  NSH_VERSION: v0.6.1
+  # nsh 必须钉版本，不能用安装脚本默认的 latest。latest 会在某天悄悄换成新大版本，
+  # 而 `nsh package` 拒绝为别的 nsh 编的依赖：v0.1.0 第一次发版就是这么挂的——本机
+  # 是 0.6.1，CI 装到当天的 latest 0.7.1，报 `cvtmouse 0.1.0 requires nsh-core ^0.6.1`。
+  # 升 nsh 要三处一起动：这个变量、Cargo.toml 的 nsh-core / nsh-base，然后重跑 nsh test。
+  NSH_VERSION: v0.7.1
 
 jobs:
   build:

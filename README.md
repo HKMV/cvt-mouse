@@ -106,6 +106,9 @@ nsh build        # 只出 bundle（.nsh/out），不打包
 .\package.ps1    # 打 Windows 包（exe + zip），并把体积压到最小
 ```
 
+工具链是 nsh 0.7.1：`Cargo.toml` 的 `nsh-core` / `nsh-base` 必须和它对齐，CI 里也钉着
+同一个版本（见下面「发布」一节）。
+
 ### 打包体积
 
 包里的 99% 是 **nsh 的运行时 runner**（我们自己的东西只有 bundle 29KB + 图标 58KB），
@@ -238,11 +241,13 @@ git push origin v0.1.0
 想重发同一个 tag：Actions 页面手动 Run workflow、填 tag 名即可，不用重建 tag。
 发布说明里如果混进了手工折行，CI 会用 `tools/notes-reflow.py` 自动合并并留一条 warning。
 
-**nsh 在 CI 里是钉版本的**（`env.NSH_VERSION`，现在 `v0.6.1`）。安装脚本默认装
-`latest`，而上游 2026-11-25 把 latest 从 0.6.1 换成了 0.7.1——0.7.1 直接拒绝
-0.6 时代的依赖（`cvtmouse 0.1.0 requires nsh-core ^0.6.1`），v0.1.0 第一次发版
-就是这么挂的。要升 nsh，得同时改 `nsh.json` / `Cargo.toml` 里的 nsh 依赖、重新
-跑一遍 `nsh test` 和实机验证，再把 `NSH_VERSION` 提上去。
+**nsh 在 CI 里是钉版本的**（`env.NSH_VERSION`，现在 `v0.7.1`，和 `Cargo.toml` 的
+`nsh-core` / `nsh-base` 对齐）。安装脚本默认装 `latest`，而上游 2026-11-25 把 latest
+从 0.6.1 换成了 0.7.1——0.7.1 直接拒绝 0.6 时代的依赖（`cvtmouse 0.1.0 requires
+nsh-core ^0.6.1`），v0.1.0 第一次发版就是这么挂的。升 nsh 是四件事一起做：改
+`Cargo.toml` 那两个依赖、改这里的 `NSH_VERSION`、跑 `nsh check` / `nsh test`、
+再实机看一眼界面（0.7 起窗口更晚才进合成器，`DwmSetWindowAttribute` 要重试才生效，
+见 `runtime::tune_window_frame`）。
 
 ## 许可证
 

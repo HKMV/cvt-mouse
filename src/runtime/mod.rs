@@ -142,18 +142,25 @@ pub fn install(config: Config) {
 
 /// 把窗口外圈那条系统画的 1px 描边去掉（见 [`win32::soften_window_frame`]）。
 ///
-/// 窗口是 nsh 宿主建的，界面挂载之后才调到这里，所以正常情况下窗口已经在了；
-/// 重试几次只是保险。失败不影响任何功能，留一行日志就够了。
+/// 窗口是 nsh 宿主建的，界面挂载之后才调到这里，所以正常情况下窗口已经在了。
+/// 但「窗口在」不等于「DWM 已经接管它」：nsh 0.7 起窗口更晚才进合成器，太早
+/// 调 `DwmSetWindowAttribute` 会返回 `E_INVALIDARG`（0.6 时代不会）。所以这里
+/// 换成后台线程重试，最多 3 秒；只在最后仍然失败时留一条 warn，成功时不打扰。
 fn tune_window_frame() {
-    for _ in 0..5 {
-        if win32::soften_window_frame() {
-            // 启动细节：成了就不必让用户看见，失败才值得一条 warn。
-            log::debug("窗口边框：已改成无描边 + 圆角".to_string());
-            return;
+    std::thread::spawn(|| {
+        for attempt in 1..=30 {
+            if win32::soften_window_frame() {
+                if attempt == 1 {
+                    log::debug("窗口边框：已改成无描边 + 圆角".to_string());
+                } else {
+                    log::debug(format!("窗口边框：第 {attempt} 次重试后改成无描边 + 圆角"));
+                }
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    log::warn("窗口边框：系统不让改（多半是旧版 Windows），保持默认".to_string());
+        log::warn("窗口边框：系统不让改（多半是旧版 Windows），保持默认".to_string());
+    });
 }
 
 /// 换配置，不重装钩子。
