@@ -340,8 +340,11 @@ function curveRows(): { v: number; g: number }[] {
 function CurvePreview(): JSX.Element {
   return (
     <View class="flex-col gap-2">
-      {/* pb-6 是给 x 轴刻度留的位置：`PlotAxis` 的标签画在图外面。 */}
-      <View class="pb-6">
+      {/*
+        内边距是给轴刻度留的位置：`PlotAxis` 的标签画在图外面，不给就顶出卡片
+        ——pb-6 留给横轴，pl-7 留给纵轴的「8x/6x/…」。
+      */}
+      <View class="pb-6 pl-7">
         <Plot
           class="h-28 w-full text-primary"
           data={curveRows()}
