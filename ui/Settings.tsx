@@ -682,6 +682,32 @@ function StatsStrip(): JSX.Element {
   );
 }
 
+/** 四个级别的分段文字，顺序和 `src/core/config.rs` 的 `Level` 一致（由严到松）。 */
+const LOG_LEVELS: { value: api.LogLevel; text: string }[] = [
+  { value: "error", text: "错误" },
+  { value: "warn", text: "警告" },
+  { value: "info", text: "信息" },
+  { value: "debug", text: "调试" },
+];
+
+/**
+ * 一个级别分段控件。
+ *
+ * 写成普通函数而不是组件：nsh 的组件体只跑一次，跟着信号变的东西（选中态、
+ * 文字颜色）必须留在 JSX 表达式里，所以把「读当前值」当成回调传进来。
+ */
+function levelPicker(read: () => api.LogLevel, pick: (level: api.LogLevel) => void): JSX.Element {
+  return (
+    <View class="flex-row gap-1 rounded-full border border-border p-1">
+      {LOG_LEVELS.map((item) => (
+        <Button class={read() === item.value ? SEG_ON : SEG_OFF} onPress={() => pick(item.value)}>
+          <Text class={read() === item.value ? LABEL_PRIMARY : LABEL}>{item.text}</Text>
+        </Button>
+      ))}
+    </View>
+  );
+}
+
 function LogCard(): JSX.Element {
   return (
     <Card
@@ -693,6 +719,24 @@ function LogCard(): JSX.Element {
         </Button>
       }
     >
+      <Row label="日志级别" hint="低于这一级的记录：左边不进界面，右边不写文件">
+        <View class="flex-row items-center gap-3">
+          <View class="flex-col items-center gap-1">
+            <Text class="text-xs text-muted-foreground">界面</Text>
+            {levelPicker(
+              () => config().logLevel,
+              (level) => applyConfig({ ...config(), logLevel: level }),
+            )}
+          </View>
+          <View class="flex-col items-center gap-1">
+            <Text class="text-xs text-muted-foreground">文件</Text>
+            {levelPicker(
+              () => config().logFileLevel,
+              (level) => applyConfig({ ...config(), logFileLevel: level }),
+            )}
+          </View>
+        </View>
+      </Row>
       <View class="flex-col gap-1 rounded-(--radius) bg-muted p-3">
         {(snap()?.logs ?? []).slice(-30).map((line) => (
           <Text class="text-xs text-muted-foreground">{line}</Text>

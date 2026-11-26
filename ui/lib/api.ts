@@ -13,6 +13,9 @@ export type Mode = "hook" | "system";
 /** 曲线上的一个断点：`[格/秒, 倍率]`。 */
 export type CurvePoint = [number, number];
 
+/** 日志级别：从「只说错误」到「什么都记」，和 `src/core/config.rs` 的 `Level` 同序。 */
+export type LogLevel = "error" | "warn" | "info" | "debug";
+
 /** 一份配置（磁盘格式 = 界面草稿格式）。 */
 export interface Config {
   enabled: boolean;
@@ -29,6 +32,10 @@ export interface Config {
   smooth: boolean;
   systemLines: number;
   originalLines: number | null;
+  /** 界面「日志」卡只看这一级及以上（内存里只留最近 300 行）。 */
+  logLevel: LogLevel;
+  /** 写文件的日志只留这一级及以上。 */
+  logFileLevel: LogLevel;
 }
 
 /** 启动时那点环境信息。 */
