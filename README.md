@@ -90,8 +90,26 @@
 nsh run          # 起开发宿主（TSX 改动热更新，Rust 改动重建并重启）
 nsh check        # cargo check + 入口与 ui/ 的类型检查
 nsh test         # cargo test + ui/ 下的界面测试（无窗口）
-nsh build        # 打包成可运行的应用
+nsh build        # 只出 bundle（.nsh/out），不打包
+.\package.ps1    # 打 Windows 包（exe + zip），并把体积压到最小
 ```
+
+### 打包体积
+
+包里的 99% 是 **nsh 的运行时 runner**（我们自己的东西只有 bundle 29KB + 图标 58KB），
+而 runner 是 nsh 用 cargo 在它自己的 workspace 里编的，所以本仓库 `Cargo.toml` 的
+`[profile.release]` 对它无效——只能用 cargo 的 profile 环境变量，`package.ps1` 就是
+把这几个变量设好再调 `nsh package`：
+
+| 配置 | exe | zip |
+| --- | --- | --- |
+| 不设（`nsh package` 直跑） | 50.09 MB | 19.06 MB |
+| `-Fast`：`opt-level=s` + `lto=thin` | 35.07 MB | 13.83 MB |
+| 默认：`opt-level=z` + `lto=fat` | **29.94 MB** | **12.65 MB** |
+
+两者都带 `codegen-units=1` 和 `strip=symbols`。代价是换档后要重编 2~4 分钟
+（LTO 是全局的，改一行也要重编）；代码没动时再跑只要 2 秒。没开 `panic=abort`
+（还能再省 2~3MB），因为那样任何 panic 都是进程直接消失、连日志都不留。
 
 目录按「谁碰什么」分开：改算法不用碰系统接口，改界面不用碰 Win32：
 
