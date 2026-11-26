@@ -5,7 +5,9 @@ import { expect, open, test } from "nsh/test";
 test("renders the settings page", async () => {
   const app = await open("../App.tsx");
   const texts = app.texts();
-  expect(texts).toContain("CvtMouse 滚轮变速");
+  expect(texts).toContain("CvtMouse 鼠标无级变速");
+  // 定位是「鼠标无级变速」，但只有滚轮实现了：界面上要写清楚，别让人以为指针也能变。
+  expect(texts).toContain("当前版本实现的是滚轮；指针（光标移动）的无级变速在计划里。");
   expect(texts).toContain("变速曲线");
   expect(texts).toContain("按应用");
   expect(texts).toContain("统计");

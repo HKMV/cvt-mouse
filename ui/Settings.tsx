@@ -225,7 +225,7 @@ function Header(): JSX.Element {
     <View class="flex-row items-center gap-3 border-b border-border bg-card px-4 py-2">
       <View class={statusDot()} />
       <View class="flex-1 flex-col">
-        <Text class="text-base font-semibold text-foreground">CvtMouse 滚轮变速</Text>
+        <Text class="text-base font-semibold text-foreground">CvtMouse 鼠标无级变速</Text>
         <Text class="text-xs text-muted-foreground">{statusText()}</Text>
       </View>
       <Button class={BTN_GHOST} onPress={runSelfTest}>
@@ -591,6 +591,7 @@ function Footer(): JSX.Element {
       ) : (
         <Caption>已具备管理员权限：提权窗口里的滚轮也会变速。</Caption>
       )}
+      <Caption>当前版本实现的是滚轮；指针（光标移动）的无级变速在计划里。</Caption>
       <Caption>{`版本 ${meta.version} · 配置 ${meta.configPath}`}</Caption>
       <Caption>关窗会收进托盘，变速继续生效；真退出请用托盘菜单。</Caption>
     </View>

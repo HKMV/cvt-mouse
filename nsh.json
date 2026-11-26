@@ -6,7 +6,7 @@
   "rust": ".",
   "appearance": "system",
   "window": {
-    "title": "CvtMouse 滚轮变速",
+    "title": "CvtMouse 鼠标无级变速",
     "defaultSize": { "width": 880, "height": 760 },
     "minSize": { "width": 720, "height": 560 }
   }
