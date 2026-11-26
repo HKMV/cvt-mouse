@@ -496,8 +496,9 @@ function ModeCard(): JSX.Element {
         规则的开关才对得上。兼容模式没有这个限制，所以那种模式下不显示。
       */}
       {isHook() && meta.hint ? (
-        <View class="flex-col items-start gap-2 rounded-(--radius) bg-muted p-3">
-          <Text class="text-xs text-destructive">{meta.hint}</Text>
+        <View class="flex-row items-center gap-3 rounded-(--radius) bg-muted p-3">
+          {/* 文字占满剩余宽度（该换行就换行），按钮固定在右边，不跟正文抢位置。 */}
+          <Text class="flex-1 text-xs text-destructive">{meta.hint}</Text>
           <Button class={BTN_SM} onPress={relaunchElevated}>
             <Text class={LABEL}>以管理员重启</Text>
           </Button>
