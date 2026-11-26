@@ -21,12 +21,15 @@ import { gainText, speedText } from "./format";
 
 // ---- class 常量 ----------------------------------------------------------
 
-const BTN = "h-8 rounded-full px-3";
+// `nsh/base` 的 Button / Switch **不自带任何外观**（见 base 的 Button 文档：
+// "no colors, sizes or label of its own"），而 nsh 的 View 默认是**竖向** flex。
+// 所以固定高度的按钮里，文字会贴在顶上——每个按钮都得自己写 flex-row + 居中。
+const BTN = "h-8 flex-row items-center justify-center rounded-full px-3";
 const BTN_GHOST = `${BTN} border border-border hover:bg-accent`;
 const BTN_DANGER = `${BTN} border border-destructive hover:bg-accent`;
 /** 分段控件的两半：选中那半填色，另一半只留 hover。 */
-const SEG_ON = "h-7 rounded-full px-3 bg-primary";
-const SEG_OFF = "h-7 rounded-full px-3 hover:bg-accent";
+const SEG_ON = "h-7 flex-row items-center justify-center rounded-full px-3 bg-primary";
+const SEG_OFF = "h-7 flex-row items-center justify-center rounded-full px-3 hover:bg-accent";
 const LABEL = "text-xs text-foreground";
 const LABEL_PRIMARY = "text-xs text-primary-foreground";
 const LABEL_DANGER = "text-xs text-destructive";
@@ -35,7 +38,9 @@ const SLIDER_TRACK = "h-6 justify-center";
 const SLIDER_INDICATOR = "h-1.5 rounded-full bg-muted";
 const SLIDER_RANGE = "rounded-full bg-primary";
 const SLIDER_THUMB = "size-4 rounded-full border border-border bg-background";
-const SWITCH_TRACK = "h-5 w-9 rounded-full bg-muted checked:bg-primary";
+// 轨道 h-5（20）装 size-4（16）的滑块：要 items-center 才竖直居中，px-0.5 让
+// 关闭态左边留 2px；打开态 translate-x-4（16）正好落到右边 2px。
+const SWITCH_TRACK = "h-5 w-9 flex-row items-center rounded-full bg-muted px-0.5 checked:bg-primary";
 const SWITCH_THUMB = "size-4 rounded-full bg-background checked:translate-x-4";
 
 // ---- 状态 ----------------------------------------------------------------
@@ -578,9 +583,10 @@ function LogCard(): JSX.Element {
   );
 }
 
-function Footer(): JSX.Element {
+/** 状态提示条：提权（可能带操作按钮）+ 关窗行为。常驻在顶部，不随内容滚走。 */
+function Hints(): JSX.Element {
   return (
-    <View class="flex-col gap-2 pb-2">
+    <View class="flex-col gap-1.5 px-4 pb-1">
       {meta.hint ? (
         <View class="flex-row items-center gap-3">
           <Note ok={false} text={meta.hint} />
@@ -591,9 +597,17 @@ function Footer(): JSX.Element {
       ) : (
         <Caption>已具备管理员权限：提权窗口里的滚轮也会变速。</Caption>
       )}
+      <Caption>关窗会收进托盘，变速继续生效；真退出请用托盘菜单。</Caption>
+    </View>
+  );
+}
+
+/** 页尾只放真正的脚注：以后要做什么、版本、配置在哪。 */
+function Footer(): JSX.Element {
+  return (
+    <View class="flex-col gap-2 pb-2">
       <Caption>当前版本实现的是滚轮；指针（光标移动）的无级变速在计划里。</Caption>
       <Caption>{`版本 ${meta.version} · 配置 ${meta.configPath}`}</Caption>
-      <Caption>关窗会收进托盘，变速继续生效；真退出请用托盘菜单。</Caption>
     </View>
   );
 }
@@ -607,6 +621,7 @@ export function Settings(): JSX.Element {
     <View class="flex-1 flex-col bg-background">
       <Header />
       <StatsStrip />
+      <Hints />
       {message() ? (
         <View class="bg-card px-4 py-2">
           <Note ok={message()!.ok} text={message()!.text} />
