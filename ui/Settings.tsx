@@ -286,7 +286,11 @@ function Header(): JSX.Element {
       <View class={statusDot()} />
       <View class="flex-1 flex-col">
         <Text class="text-base font-semibold text-foreground">CvtMouse 鼠标无级变速</Text>
-        <Text class="text-xs text-muted-foreground">{statusText()}</Text>
+        <View class="flex-row items-center gap-2">
+          <Text class="text-xs text-muted-foreground">{statusText()}</Text>
+          {/* 非管理员只是个标识，说明和「以管理员重启」在「实现方式与透传」卡里。 */}
+          {meta.hint ? <Text class="text-xs font-medium text-destructive">非管理员</Text> : null}
+        </View>
       </View>
       <Button class={BTN_GHOST} onPress={runSelfTest}>
         <Text class={LABEL}>自检</Text>
@@ -487,6 +491,18 @@ function ModeCard(): JSX.Element {
           </Button>
         </View>
       </Row>
+      {/*
+        提权提示放在这儿而不是顶部：它就是「钩子模式的一个例外」，紧挨着讲这条
+        规则的开关才对得上。兼容模式没有这个限制，所以那种模式下不显示。
+      */}
+      {isHook() && meta.hint ? (
+        <View class="flex-col items-start gap-2 rounded-(--radius) bg-muted p-3">
+          <Text class="text-xs text-destructive">{meta.hint}</Text>
+          <Button class={BTN_SM} onPress={relaunchElevated}>
+            <Text class={LABEL}>以管理员重启</Text>
+          </Button>
+        </View>
+      ) : null}
       {isHook() ? null : (
         <Row label="每格行数" hint={`系统当前是 ${meta.systemLines} 行；退出兼容模式时自动还原`}>
           <View class="flex-row items-center gap-3">
@@ -640,35 +656,12 @@ function LogCard(): JSX.Element {
   );
 }
 
-/**
- * 状态提示条：提权（可能带操作按钮）+ 关窗行为。常驻在顶部，不随内容滚走。
- *
- * 红字和按钮分两行：一行里塞「一句长红字 + 一个按钮」会互相挤，读起来乱。
- * 文字占满整行、按钮单独一行靠左，按钮也降一档高度（`BTN_SM`）。
- */
-function Hints(): JSX.Element {
-  return (
-    <View class="flex-col items-start gap-2 px-4 pb-1">
-      {meta.hint ? (
-        <View class="flex-col items-start gap-2">
-          <Note ok={false} text={meta.hint} />
-          <Button class={BTN_SM} onPress={relaunchElevated}>
-            <Text class={LABEL}>以管理员重启</Text>
-          </Button>
-        </View>
-      ) : (
-        <Caption>已具备管理员权限：提权窗口里的滚轮也会变速。</Caption>
-      )}
-      <Caption>关窗会收进托盘，变速继续生效；真退出请用托盘菜单。</Caption>
-    </View>
-  );
-}
-
-/** 页尾只放真正的脚注：以后要做什么、版本、配置在哪。 */
+/** 页尾只放真正的脚注：以后要做什么、窗口行为、版本、配置在哪。 */
 function Footer(): JSX.Element {
   return (
     <View class="flex-col gap-2 pb-2">
       <Caption>当前版本实现的是滚轮；指针（光标移动）的无级变速在计划里。</Caption>
+      <Caption>关窗会收进托盘，变速继续生效；真退出请用托盘菜单。</Caption>
       <Caption>{`版本 ${meta.version} · 配置 ${meta.configPath}`}</Caption>
     </View>
   );
@@ -683,7 +676,6 @@ export function Settings(): JSX.Element {
     <View class="relative flex-1 flex-col bg-background">
       <Header />
       <StatsStrip />
-      <Hints />
       {message() ? (
         <View class="bg-card px-4 py-2">
           <Note ok={message()!.ok} text={message()!.text} />
