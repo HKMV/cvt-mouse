@@ -1,0 +1,226 @@
+name: Release
+
+# 打 tag（v*）即自动编译 Windows 产物并发布到 GitHub Release。
+# 也可以在 Actions 页面手动 Run workflow，填一个已存在的 tag 重跑发布。
+#
+# 打 tag 的标准写法（-F 后面跟一个写好说明的文本文件）：
+#
+#   git tag -a v0.1.0 -F notes.txt --cleanup=verbatim
+#   git push origin v0.1.0
+#
+# 几个已经踩过 / 一定会踩的坑，别再踩：
+#
+# 1. **说明里的 Markdown 标题会被 `git tag -F` 当注释剥掉**。不加
+#    `--cleanup=verbatim` 时 git 按「剥注释」处理，以 `#` 开头的行（`## 新功能`
+#    这种）整行消失，Release 页面只剩一串没有分段的 bullet。
+# 2. **notes 一段写一行，别按 80 列手工折行**。Release 页面把单个换行当成真的
+#    换行，折过的正文在页面上每行只走半截就断。这条有兜底：发布前
+#    `tools/notes-reflow.py` 会把软换行合并回去并在日志里留一条 warning。
+# 3. **版本号写在两个地方**：`Cargo.toml` 和 `nsh.json`。`nsh package` 用的是
+#    `nsh.json` 的版本，exe 属性页和界面「关于」那行读的也是它；只改 Cargo.toml
+#    会发出一个版本号对不上的包。下面两个 job 都会核对，不一致直接失败。
+# 4. **只出 Windows 一个包**。这个程序的核心是 Win32 低级鼠标钩子（`WH_MOUSE_LL`）
+#    和 `SendInput` 注入，nsh 的运行时也按 Windows host 出包，没有 Linux/macOS
+#    可交付的东西——别照搬三平台矩阵。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "已存在的 tag（例如 v0.1.0）"
+        required: true
+        type: string
+
+# 发布 Release 需要写权限；其余权限一律不给。
+permissions:
+  contents: write
+
+# 同一个 tag 同时只跑一个发布，避免两个 job 抢着建 Release。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  BIN: CvtMouse
+  # push 事件取 tag 名，手动触发取输入；后续所有步骤都用这一个变量。
+  TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+
+jobs:
+  build:
+    name: build (windows-x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 手动触发时 ref 是分支，这里强制检出被发布的那个 tag。
+          ref: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+
+      # 本机验证过的是 stable（1.99.1）；nsh 的 runner 也要 cargo 编，跟着 stable 走。
+      - uses: dtolnay/rust-toolchain@stable
+
+      # runner 是 nsh 用 cargo 在它自己的 workspace 里编的，缓存命中与否由
+      # nsh 自己决定位置；这一步主要是缓存 ~/.cargo 里的依赖。
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-x64
+
+      # nsh 不在 cargo 的生态里，官方安装脚本装到 %LOCALAPPDATA%\nsh\bin。
+      # 装完写进 GITHUB_PATH，后面的 `package.ps1` 里那句 `nsh package` 才找得到。
+      - name: Install nsh
+        shell: pwsh
+        run: |
+          irm https://nsh.dev/install.ps1 | iex
+          $dir = Join-Path $env:LOCALAPPDATA "nsh\bin"
+          if (-not (Test-Path (Join-Path $dir "nsh.exe"))) {
+            Write-Output "::error::nsh 没装上（$dir\nsh.exe 不存在）"
+            exit 1
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $dir
+          & (Join-Path $dir "nsh.exe") --version
+
+      # tag 与两处版本号不一致时在打包前就失败：别白等 7 分钟 LTO。
+      - name: Verify tag matches versions
+        shell: pwsh
+        run: |
+          $tag = $env:TAG -replace '^v', ''
+          $cargo = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' |
+            Select-Object -First 1).Matches[0].Groups[1].Value
+          $nsh = (Get-Content nsh.json -Raw | ConvertFrom-Json).version
+          "tag=$tag Cargo.toml=$cargo nsh.json=$nsh"
+          if ($cargo -ne $tag) {
+            Write-Output "::error::tag $env:TAG 与 Cargo.toml 的 version = `"$cargo`" 不一致"
+            exit 1
+          }
+          if ($nsh -ne $tag) {
+            Write-Output "::error::tag $env:TAG 与 nsh.json 的 version = `"$nsh`" 不一致"
+            exit 1
+          }
+
+      # 体积压到最小（opt-level=z + lto=fat + cgu=1 + strip）：约 7 分钟，
+      # 产物在 .nsh\out\CvtMouse\ 和 .nsh\out\CvtMouse.zip。
+      - name: Package
+        shell: pwsh
+        run: ./package.ps1
+
+      # `nsh package` 出的 zip 里只有程序目录，没有说明和协议；Release 的包
+      # 额外塞一份 README / LICENSE，并且按 `<名字>-<tag>-<目标>.zip` 改名，
+      # 和别的项目放在一起时一眼能看出是哪个版本、哪个平台。
+      - name: Collect artifact
+        shell: pwsh
+        run: |
+          $name = "$env:BIN-$env:TAG-windows-x64"
+          $dir = "dist/$name"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item ".nsh/out/CvtMouse" $dir -Recurse -Force
+          Copy-Item README.md, LICENSE $dir
+          Compress-Archive -Path "$dir/*" -DestinationPath "dist/$name.zip" -Force
+          Get-ChildItem -Recurse dist | Select-Object FullName, Length | Format-Table -AutoSize
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BIN }}-${{ env.TAG }}-windows-x64
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # build 里已经核过一次，这里再核一次：手动重跑时 checkout 的 tag 可能和
+      # 产物来自不同的提交，宁可失败也别把对不上的包挂上去。
+      - name: Verify tag matches versions
+        run: |
+          set -euo pipefail
+          tag="${TAG#v}"
+          cargo_ver=$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
+          nsh_ver=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' nsh.json | head -1)
+          echo "tag=$TAG Cargo.toml=$cargo_ver nsh.json=$nsh_ver"
+          if [ "$cargo_ver" != "$tag" ] || [ "$nsh_ver" != "$tag" ]; then
+            echo "::error::tag $TAG 与 Cargo.toml ($cargo_ver) / nsh.json ($nsh_ver) 不一致"
+            exit 1
+          fi
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum ./* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      # 用 gh CLI（runner 自带）而不是第三方 action：不用 pin 第三方版本。
+      # 已存在同名 Release 时只补传/覆盖文件，不重建，方便重跑。
+      #
+      # 发布说明**不用** `--generate-notes`：它靠 PR 标题拼 "What's Changed"，
+      # 而这个仓库直接推 master、不开 PR，生成出来只剩一行 compare 链接。
+      #
+      # 取材顺序：先取 tag 说明（`git tag -a -F notes.txt` 写的那份），
+      # 没写再退回版本提交的正文。
+      - name: Collect release notes
+        run: |
+          set -euo pipefail
+          # 说明取自 tag 说明的**全部内容**（`%(contents)`），不是
+          # `%(contents:body)`：后者按 git 的定义会砍掉第一个段落，而 tag 的第一行
+          # 正好是「0.1.0：一句话摘要」那句，砍掉之后 Release 页面顶部就只剩
+          # `## 新功能`，摘要哪儿都不显示。
+          notes="$(git tag -l --format='%(contents)' "$TAG")"
+          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then
+            notes="$(git log -1 --pretty=%b HEAD)"
+          fi
+          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then
+            notes="**Full Changelog**: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$TAG~1...$TAG"
+          fi
+          printf '%s\n' "$notes" > "$RUNNER_TEMP/notes.md"
+          echo "--- release notes ---"
+          cat "$RUNNER_TEMP/notes.md"
+
+      # Release 页面（和 issue / PR 一样）把**单个换行当成真的换行**：tag 里按
+      # 80 列折过的正文，页面上每行只走半截就断。约定是 notes.txt 一段一行，
+      # 这里做兜底——真折了就地合并，不拦下发布（tag 已经推上去，拦下要重编
+      # 产物），但一定在日志和注解里留痕。
+      - name: Reflow release notes
+        run: |
+          set -euo pipefail
+          if python3 tools/notes-reflow.py --check "$RUNNER_TEMP/notes.md"; then
+            echo "发布说明没有软换行，原样使用"
+            exit 0
+          fi
+          echo "::warning::发布说明里有手工折行（Release 页面会每行半截就断），已自动重排成一段一行；下面 diff 是具体合并了哪些行"
+          python3 tools/notes-reflow.py --diff "$RUNNER_TEMP/notes.md"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "--- release notes ---"
+          cat "$RUNNER_TEMP/notes.md"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            # 重跑时把说明也同步一遍，别让正文停在第一次那一版。
+            gh release edit "$TAG" \
+              --title "CvtMouse $TAG" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            prerelease=""
+            case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+            gh release create "$TAG" dist/* \
+              --verify-tag \
+              --title "CvtMouse $TAG" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              $prerelease
+          fi
