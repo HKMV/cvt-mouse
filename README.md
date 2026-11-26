@@ -88,23 +88,29 @@ nsh test         # cargo test + ui/ 下的界面测试（无窗口）
 nsh build        # 打包成可运行的应用
 ```
 
-目录按「核心 / 外部依赖」分开，改算法不用碰系统接口，改界面不用碰 Win32：
+目录按「谁碰什么」分开：改算法不用碰系统接口，改界面不用碰 Win32：
 
 ```text
-App.tsx                 入口，只 mount（必须在仓库根：nsh 从同级解析 cvtmouse/native）
+App.tsx                 入口，只 mount（必须在仓库根：nsh 认 `nsh.json` 里的 `"rust": "."`，
+                        而 `nsh.json` 必须和入口同级——`nsh package` 的说明原文是
+                        「Metadata comes from `nsh.json` next to the entry」）
 src/                    Rust 后端
-├─ lib.rs               crate 根 + Backend 门面（JSON 文本进出，nsh 的边界）
-├─ hook/                编排：把 core 的判断接到 Windows 输入链路上
-│  ├─ mod.rs            全局引擎、生命周期、把平台信息填成 Env 交给 Policy
-│  ├─ proc.rs           钩子线程：WH_MOUSE_LL 回调、热键、消息循环
+├─ lib.rs               只有注册（nsh 要求 `#[native_module]` 在 crate 根）
+├─ api/                 nsh 边界：Backend 的每个方法，JSON 文本进出
+├─ runtime/             编排：把 core 的判断接到 Windows 输入链路上
+│  ├─ mod.rs            全局引擎、线程生命周期、把系统信息填成 Env 交给 Policy
+│  ├─ hook.rs           钩子线程：WH_MOUSE_LL 回调、热键、消息循环
 │  └─ pump.rs           注入线程：按 8ms 节拍把积压的格数一格一格发出去
 ├─ core/                核心实现：纯逻辑，不碰 Win32、不碰文件系统
-│  ├─ decide.rs         要不要改、改多少（Policy/Act/Env，有单测）
-│  ├─ curve.rs          速度计、曲线插值、累加器、平滑泵（有单测）
+│  ├─ policy.rs         要不要改、改多少（Env/Act/Policy，有单测）
+│  ├─ stats.rs          界面读的那些计数（观测数据，不参与决策）
+│  ├─ curve.rs          曲线插值、速度计、累加器（有单测）
+│  ├─ pacing.rs         每拍发几格（输出侧节流，有单测）
 │  └─ config.rs         配置结构、默认值、校验
-└─ platform/            外部依赖
-   ├─ win32.rs          权限、提权重启、光标下窗口、系统行数
-   ├─ clock.rs          时间戳（SYSTEMTIME）
+├─ sys/                 系统调用：只有这里能 use windows_sys
+│  ├─ win32.rs          权限、提权重启、光标下窗口、系统行数
+│  └─ clock.rs          时间戳（SYSTEMTIME）与单调毫秒
+└─ infra/               落地：只有这里写文件
    ├─ log.rs            内存环形缓冲 + 500ms 落盘（钩子回调里禁止 IO）
    └─ store.rs          config.json 的路径与读写
 ui/                     TSX 界面
@@ -116,10 +122,16 @@ ui/                     TSX 界面
    └─ desktop.ts        托盘图标 + 关窗收进托盘
 ```
 
-分层的规矩只有一条：`core` 里出现 `windows_sys` 或 `std::fs` 就是错位了。
-`hook/` 之所以留在 `src/` 顶层而不是塞进 `core/`，就是因为它整个职责就是碰 Win32
-（`SetWindowsHookEx`、`SendInput`、消息循环）；`decide` 相反，它只是策略，所以进 `core/`
-——这样「要不要变速」能脱离 Windows 单测。
+自检就一句话：**每个目录只有一个「为什么存在」，看它碰了什么就知道有没有错位**。
+`core` 里出现 `windows_sys` 或 `std::fs` 是错位；`sys` 里出现 `serde_json` 是错位；
+`api` 里出现 `SetWindowsHookEx` 是错位。`runtime/` 之所以留在顶层而不是塞进 `core/`，
+是因为它整个职责就是碰 Win32（`SetWindowsHookEx`、`SendInput`、消息循环）；
+`core/policy.rs` 相反，它只是策略，所以进 `core/`——这样「要不要变速」能脱离 Windows 单测。
+
+外层骨架和 `nsh init --template mixed` 生成的一模一样（`Cargo.toml` 和 `src/lib.rs` 与
+`App.tsx` 同级，`nsh.json` 里 `"rust": "."`）：**在 `src/` 里的是 Rust，不是界面**。
+我们只多做两件事——`src/` 内部按「核心 / 系统 / 落地 / 编排 / 边界」分了层，把官方模板里
+那一个 `App.tsx` 拆成了 `ui/` 几个组件（官方模板里没有 `ui/` 这个位置，界面全在 `App.tsx`）。
 
 ### 三个踩过的坑（都验证过，别再踩）
 
@@ -127,7 +139,7 @@ ui/                     TSX 界面
    `MSLLHOOKSTRUCT.mouseData` 的高 16 位。发送方**不要**自己 `<< 16`：那样不报错、
    `SendInput` 也返回成功，但系统会把整个 32 位值按 i16 饱和——正数变 `32767`、
    负数变 `-32768`（实测发 `0xFF880000`，钩子收到 `-32768`），等于每格只滚一行。
-   接收方（钩子）才要取高 16 位。见 `hook::pump::wheel_mouse_data` 及其单测。
+   接收方（钩子）才要取高 16 位。见 `runtime::pump::wheel_mouse_data` 及其单测。
 
 2. **注入事件的标记（魔数）必须是 32 位**。`MSLLHOOKSTRUCT.dwExtraInfo` 声明成
    `ULONG_PTR`，但低级钩子只保留低 32 位：用 64 位魔数会认不出自己注入的事件

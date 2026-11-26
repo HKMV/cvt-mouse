@@ -118,23 +118,8 @@ impl Meter {
     }
 }
 
-/// 平滑输出的「这一拍发几格」。
+/// 「攒够一格才发」的累加器。
 ///
-/// 积压 6 格以内一拍一格：8ms 一格，视觉上是连续的滚，而不是「跳一行」。积压更多
-/// 就一拍多发几格追上——否则快滚时输出会一直落后于输入，越滚越滞后。
-///
-/// 不平滑（`smooth = false`）时一拍把积压全部发完：跟手，但每一拍都是一次跳。
-pub fn pump_step(pending: i32, smooth: bool) -> i32 {
-    if pending == 0 {
-        return 0;
-    }
-    if !smooth {
-        return pending;
-    }
-    ((pending.abs() + 5) / 6).max(1) * pending.signum()
-}
-
-/// 「攒够一格才发」的累加器。///
 /// 倍率小于 1 时一格不够一行：这一格先记着，下次凑够再一起发。反过来倍率大于
 /// 1 时一格可能顶好几行。小数部分留着，长时间滚下去不会越滚越偏。
 #[derive(Debug, Default)]
@@ -307,34 +292,5 @@ mod tests {
             (v_whole - v_fine).abs() < 0.01,
             "整格 {v_whole} 与细粒度 {v_fine} 的速度该一致"
         );
-    }
-
-    #[test]
-    fn pump_spreads_a_burst_into_single_notches() {
-        // 5 格积压 → 每拍 1 格，5 拍（40ms）发完，中途每一拍都是「滚」而不是「跳」。
-        let mut pending = 5;
-        let mut ticks = 0;
-        let mut steps = Vec::new();
-        while pending != 0 && ticks < 100 {
-            let step = pump_step(pending, true);
-            steps.push(step);
-            pending -= step;
-            ticks += 1;
-        }
-        assert_eq!(pending, 0);
-        assert_eq!(steps, vec![1, 1, 1, 1, 1]);
-    }
-
-    #[test]
-    fn pump_keeps_direction_and_catches_up() {
-        // 反向的积压只发负格，不会把上面没发完的正格先发出去。
-        assert_eq!(pump_step(-5, true), -1);
-        // 积压很多时一拍多发几格追上，不会越滚越滞后。
-        assert_eq!(pump_step(48, true), 8);
-        assert_eq!(pump_step(12, true), 2);
-        // 不平滑：一拍发完。
-        assert_eq!(pump_step(5, false), 5);
-        assert_eq!(pump_step(-5, false), -5);
-        assert_eq!(pump_step(0, true), 0);
     }
 }

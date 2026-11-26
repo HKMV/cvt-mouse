@@ -3,7 +3,7 @@
 //! 字段名用 camelCase：这份 JSON 既是磁盘格式，也是界面提交草稿的格式，
 //! 两边同一套名字，省掉一次翻译。
 //!
-//! 这里**不碰文件系统**：读盘和落盘在 [`crate::platform::store`]，所以本模块的
+//! 这里**不碰文件系统**：读盘和落盘在 [`crate::infra::store`]，所以本模块的
 //! 校验逻辑可以直接单测。
 
 use std::collections::BTreeMap;

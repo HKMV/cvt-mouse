@@ -1,11 +1,14 @@
 //! 滚轮决策：这一格要不要改、改成多少。
 //!
 //! 纯逻辑：不查键盘、不查窗口、不读时钟——环境由 [`Env`] 从外面送进来
-//! （[`crate::hook`] 那一层负责去 Win32 取）。所以这一层能在任何机器上单测，
+//! （[`crate::runtime`] 那一层负责去 Win32 取）。所以这一层能在任何机器上单测，
 //! 不用装钩子、不用真的滚鼠标。
+//!
+//! 统计（[`Stats`]）只是观测数据，单独放在 [`crate::core::stats`]。
 
 use super::config::{Config, Mode};
 use super::curve::{Accumulator, Curve, Meter};
+use super::stats::Stats;
 
 /// 一格滚轮的标准单位。
 pub const NOTCH: i32 = 120;
@@ -45,36 +48,6 @@ pub enum Act {
     Swallow,
     /// 吃掉，改发这么多格。
     Wheel(i32),
-}
-
-/// 运行统计（界面每 250ms 读一次）。
-///
-/// 计数用 **wheel 单位**（120 = 一格）而不是格：鼠标送来的值不一定是 120 的整数倍，
-/// 按格记会把细粒度事件记成 0，看起来像「什么都没收到」。
-#[derive(Clone, Debug, Default)]
-pub struct Stats {
-    /// 经过钩子的滚轮事件数。
-    pub events: u64,
-    /// 累计进来的 wheel 单位（绝对值）。
-    pub in_units: i64,
-    /// 累计发给应用的 wheel 单位（绝对值）。
-    pub out_units: i64,
-    /// 原样放行的次数。
-    pub passed: u64,
-    /// 吃掉但没发的次数。
-    pub swallowed: u64,
-    /// 最近一次的速度（格/秒）。
-    pub velocity: f32,
-    /// 最近一次的倍率。
-    pub gain: f32,
-    /// 最近一次收到的原始 `mouseData`（±120 才是标准一格）。
-    pub last_delta: i32,
-    /// 最近一次事件的 `dwExtraInfo`：用来认出「这条是谁注入的」。
-    pub last_extra: usize,
-    /// 最近一次事件的 `dwFlags`。
-    pub last_flags: u32,
-    /// 最近一次算倍率时认到的程序。
-    pub exe: String,
 }
 
 /// 决策状态：曲线、速度计、累加器、统计，以及这一轮要落的诊断行。

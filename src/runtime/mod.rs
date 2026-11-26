@@ -1,13 +1,14 @@
-//! 全局滚轮钩子（编排层）：把 [`crate::core::decide`] 的判断接到 Windows 的输入链路上。
+//! 运行时（编排层）：把 [`crate::core::policy`] 的判断接到 Windows 的输入链路上。
 //!
 //! 这里只负责「装上钩子、收事件、把环境填好交出去、把结果交给注入线程」；
-//! 要不要改、改多少是纯逻辑，在 `core/decide.rs` 里，能脱离 Windows 单测。
+//! 要不要改、改多少是纯逻辑，在 `core/policy.rs` 里，能脱离 Windows 单测。
+//! 三个文件各管一件事：[`hook`] 收事件，[`pump`] 发事件，本文件管状态和生命周期。
 //!
 //! # 为什么是这个方案
 //!
 //! 滚轮的一格是设备固件写死的 HID 报文（±120），「一格滚几行」是**主机侧**解释
 //! 出来的。所以变速只有两条路：改系统那个全局固定值（`SPI_SETWHEELSCROLLLINES`，
-//! 见 [`crate::platform::win32`]），或者在输入链路上把事件拦下来自己换算。要「按速度变」，
+//! 见 [`crate::sys::win32`]），或者在输入链路上把事件拦下来自己换算。要「按速度变」，
 //! 只能是后者。
 //!
 //! # 四条不能违反的规矩
@@ -24,16 +25,18 @@
 //! 4. **注入按节拍发**。一次把 5 格塞给应用是「跳」，分成 5 次每 8ms 一格才是
 //!    「滚」。这也是快滚时不卡的原因：节拍泵天然给注入速率设了上限。
 
-mod proc;
+mod hook;
 mod pump;
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Mutex, Once, OnceLock};
 
 use crate::core::config::Config;
-use crate::core::decide::{Act, Env, Policy, Stats};
-use crate::platform::win32::Target;
-use crate::platform::{clock, log, store, win32};
+use crate::core::policy::{Act, Env, Policy};
+use crate::core::stats::Stats;
+use crate::infra::{log, store};
+use crate::sys::clock;
+use crate::sys::win32::{self, Target};
 
 /// 自己注入的事件的标记（`CVTM`）。
 ///
@@ -129,7 +132,7 @@ fn lock() -> std::sync::MutexGuard<'static, Engine> {
 pub fn install(config: Config) {
     lock().apply(config);
     STARTED.call_once(|| {
-        proc::spawn();
+        hook::spawn();
         pump::spawn();
     });
 }
@@ -179,7 +182,7 @@ pub fn set_enabled(on: bool) {
 pub fn shutdown() {
     let id = HOOK_THREAD.swap(0, Ordering::SeqCst);
     if id != 0 {
-        proc::quit_thread(id);
+        hook::quit_thread(id);
     }
 }
 
@@ -196,9 +199,9 @@ pub(crate) fn decide(delta: i16, extra: usize, flags: u32) -> Act {
         target_elevated: target.elevated,
         self_elevated: win32::is_elevated(),
         // 配置说不用管的修饰键就不查（少两次 GetAsyncKeyState）。
-        ctrl: state.config.pass_ctrl && proc::key_down(proc::VK_CONTROL),
-        alt: state.config.pass_alt && proc::key_down(proc::VK_MENU),
-        shift: state.config.pass_shift && proc::key_down(proc::VK_SHIFT),
+        ctrl: state.config.pass_ctrl && hook::key_down(hook::VK_CONTROL),
+        alt: state.config.pass_alt && hook::key_down(hook::VK_MENU),
+        shift: state.config.pass_shift && hook::key_down(hook::VK_SHIFT),
         now_ms: clock::now_ms(),
     };
     let act = state.policy.decide(&state.config, delta, &env, extra, flags);

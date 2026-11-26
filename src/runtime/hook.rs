@@ -16,8 +16,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::{decide, lock, pump, HOOK_THREAD, INSTALLED, MAGIC};
-use crate::core::decide::Act;
-use crate::platform::log;
+use crate::core::policy::Act;
+use crate::infra::log;
 
 /// 修饰键：`decide` 里要按配置判断「按住就不改」，键码从这里拿。
 pub(crate) use windows_sys::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_MENU, VK_SHIFT};

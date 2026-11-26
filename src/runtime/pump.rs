@@ -14,9 +14,9 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 
 use super::{INJECT_FAILED, MAGIC, SMOOTH};
-use crate::core::curve;
-use crate::core::decide::NOTCH;
-use crate::platform::log;
+use crate::core::pacing;
+use crate::core::policy::NOTCH;
+use crate::infra::log;
 
 /// 一拍多少毫秒。
 const TICK_MS: u64 = 8;
@@ -67,9 +67,9 @@ fn injector_loop() {
             }
         }
 
-        // 平滑：按积压量分档发（见 `curve::pump_step`）。不平滑：一次发完。
+        // 平滑：按积压量分档发（见 `pacing::pump_step`）。不平滑：一次发完。
         let smooth = SMOOTH.load(Ordering::Relaxed);
-        let step = curve::pump_step(pump.pending, smooth);
+        let step = pacing::pump_step(pump.pending, smooth);
         pump.pending -= step;
         drop(pump);
 
@@ -132,7 +132,7 @@ pub fn queue(notches: i32) {
 /// * 发送方**不要**自己左移 16 位。填 `120 << 16` 不会报错，`SendInput` 也返回成功，
 ///   但系统会把整个 32 位值当成一个数按 i16 饱和——正数变 `32767`、负数变 `-32768`
 ///   （实测：发 `0xFF880000`，钩子收到 `-32768`）。
-/// * 接收方（[`super::proc`] 的 `hook_proc`）才要取高 16 位。
+/// * 接收方（[`super::hook`] 的 `hook_proc`）才要取高 16 位。
 fn wheel_mouse_data(notches: i32) -> u32 {
     // 高 16 位装得下 ±273 格；再多也没意义（平滑泵会把积压分批发完）。
     const LIMIT: i32 = 273;
