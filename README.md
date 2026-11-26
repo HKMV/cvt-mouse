@@ -238,6 +238,12 @@ git push origin v0.1.0
 想重发同一个 tag：Actions 页面手动 Run workflow、填 tag 名即可，不用重建 tag。
 发布说明里如果混进了手工折行，CI 会用 `tools/notes-reflow.py` 自动合并并留一条 warning。
 
+**nsh 在 CI 里是钉版本的**（`env.NSH_VERSION`，现在 `v0.6.1`）。安装脚本默认装
+`latest`，而上游 2026-11-25 把 latest 从 0.6.1 换成了 0.7.1——0.7.1 直接拒绝
+0.6 时代的依赖（`cvtmouse 0.1.0 requires nsh-core ^0.6.1`），v0.1.0 第一次发版
+就是这么挂的。要升 nsh，得同时改 `nsh.json` / `Cargo.toml` 里的 nsh 依赖、重新
+跑一遍 `nsh test` 和实机验证，再把 `NSH_VERSION` 提上去。
+
 ## 许可证
 
 [MIT](LICENSE)。

@@ -47,6 +47,12 @@ env:
   BIN: CvtMouse
   # push 事件取 tag 名，手动触发取输入；后续所有步骤都用这一个变量。
   TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+  # nsh 必须钉版本，不能用安装脚本默认的 latest。v0.1.0 第一次发版就是这么挂的：
+  # 本机验证的是 0.6.1，而上游 2026-11-25 把 latest 变成了 0.7.1，`nsh package`
+  # 直接报「these dependencies are built for another nsh … requires nsh-core ^0.6.1」
+  # 退出 1（本机用 0.7.1 复现过，见 README 的「发布」一节）。
+  # 升级 nsh 是另一件事：要同时改 nsh.json / Cargo.toml 里的 nsh 依赖并重新验一遍。
+  NSH_VERSION: v0.6.1
 
 jobs:
   build:
@@ -68,7 +74,8 @@ jobs:
           key: windows-x64
 
       # nsh 不在 cargo 的生态里，官方安装脚本装到 %LOCALAPPDATA%\nsh\bin。
-      # 装完写进 GITHUB_PATH，后面的 `package.ps1` 里那句 `nsh package` 才找得到。
+      # 脚本认 `NSH_VERSION`（上面 env 里钉的版本），装完写进 GITHUB_PATH，
+      # 后面的 `package.ps1` 里那句 `nsh package` 才找得到。
       - name: Install nsh
         shell: pwsh
         run: |
@@ -79,7 +86,14 @@ jobs:
             exit 1
           }
           Add-Content -Path $env:GITHUB_PATH -Value $dir
-          & (Join-Path $dir "nsh.exe") --version
+          $got = (& (Join-Path $dir "nsh.exe") --version) -join ' '
+          "nsh --version => $got"
+          # notice 注解是匿名也能读到的（job 日志要登录），排障时先看这里。
+          Write-Output "::notice::nsh $got（钉的是 $env:NSH_VERSION）"
+          if ($got -notmatch ('^nsh ' + [regex]::Escape($env:NSH_VERSION.TrimStart('v')))) {
+            Write-Output "::error::装到的 nsh 版本不是钉住的 $env:NSH_VERSION：$got"
+            exit 1
+          }
 
       # tag 与两处版本号不一致时在打包前就失败：别白等 7 分钟 LTO。
       - name: Verify tag matches versions
@@ -101,9 +115,22 @@ jobs:
 
       # 体积压到最小（opt-level=z + lto=fat + cgu=1 + strip）：约 7 分钟，
       # 产物在 .nsh\out\CvtMouse\ 和 .nsh\out\CvtMouse.zip。
+      #
+      # 失败时把最后 15 行塞进 `::error::` 注解：job 日志要登录才看得到，注解
+      # 匿名就能读。v0.1.0 第一次发布失败时注解里只有一句「exit code 1」，最后
+      # 是本机装同一个版本的 nsh 复现才拿到真正的原因。
       - name: Package
         shell: pwsh
-        run: ./package.ps1
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "package.log"
+          try {
+            & ./package.ps1 *>&1 | Tee-Object -FilePath $log
+            if ($LASTEXITCODE -ne 0) { throw "package.ps1 退出码 $LASTEXITCODE" }
+          } catch {
+            $tail = (Get-Content $log -Tail 15) -join '%0A'
+            Write-Output "::error::打包失败：$($_.Exception.Message)%0A$tail"
+            exit 1
+          }
 
       # `nsh package` 出的 zip 里只有程序目录，没有说明和协议；Release 的包
       # 额外塞一份 README / LICENSE，并且按 `<名字>-<tag>-<目标>.zip` 改名，
