@@ -125,6 +125,17 @@ ui/                     TSX 界面
 └─ lib/                外部依赖
    ├─ api.ts            唯一 import cvtmouse/native 的地方
    └─ desktop.ts        托盘图标 + 关窗收进托盘
+assets/                 图标
+├─ icon.svg             设计源文件，改这个
+└─ icon.png             1024×1024，`nsh.json` 的 `"icon"` 指它（`nsh package` 用）
+```
+
+图标改了 svg 之后要重新导出 png（无头 Edge 渲染，圆角外面是透明的）：
+
+```powershell
+& "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" --headless=new --disable-gpu --hide-scrollbars `
+  --default-background-color=00000000 --window-size=1024,1024 `
+  --screenshot=assets\icon.png "file:///$(($PWD.Path -replace '\\','/'))/assets/icon.svg"
 ```
 
 自检就一句话：**每个目录只有一个「为什么存在」，看它碰了什么就知道有没有错位**。

@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "build": 1,
   "rust": ".",
+  "icon": "assets/icon.png",
   "appearance": "system",
   "window": {
     "title": "CvtMouse 鼠标无级变速",
