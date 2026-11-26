@@ -12,7 +12,7 @@
 
 import { Scroll, signal, Text, View } from "nsh";
 import type { JSX } from "nsh";
-import { Button, Collapsible, NumberInput, Slider, Switch } from "nsh/base";
+import { Button, Collapsible, NumberInput, Slider, Switch, Tooltip } from "nsh/base";
 import { Area, Grid, Line, Plot, PlotAxis } from "nsh/base/plot";
 import type { ResizeEdge } from "nsh/desktop";
 import { windowState } from "nsh/desktop";
@@ -40,6 +40,9 @@ const WIN_BTN = "h-8 w-11 flex-row items-center justify-center hover:bg-border";
 const WIN_GLYPH = "text-foreground";
 /** Windows 自带的图标字体，字形跟系统标题栏是同一套。 */
 const WIN_ICON = { fontFamily: "Segoe Fluent Icons", fontSize: 10 };
+/** 窗口按钮的悬停提示：深色气泡 + 浅色字（主题的 foreground/background 反着用）。 */
+const TIP = "max-w-64 rounded-md bg-foreground px-2 py-1";
+const TIP_TEXT = "text-xs text-background";
 /** 分段控件的两半：选中那半填色，另一半只留 hover。 */
 const SEG_ON = "h-7 flex-row items-center justify-center rounded-full px-3 bg-primary";
 const SEG_OFF = "h-7 flex-row items-center justify-center rounded-full px-3 hover:bg-accent";
@@ -253,13 +256,39 @@ function WindowButtons(): JSX.Element {
   const maximized = () => windowState()?.mode === "maximized";
   return (
     <View class="flex-row items-center">
-      <View class={WIN_BTN} desktop={{ windowControl: "minimize" }}>
+      <View
+        class={WIN_BTN}
+        desktop={{ windowControl: "minimize" }}
+        tooltip={
+          <Tooltip class={TIP}>
+            <Text class={TIP_TEXT}>最小化</Text>
+          </Tooltip>
+        }
+      >
         <Text class={WIN_GLYPH} style={WIN_ICON}>{"\uE921"}</Text>
       </View>
-      <View class={WIN_BTN} desktop={{ windowControl: "maximize" }}>
+      <View
+        class={WIN_BTN}
+        desktop={{ windowControl: "maximize" }}
+        tooltip={
+          <Tooltip class={TIP}>
+            <Text class={TIP_TEXT}>{maximized() ? "还原" : "最大化"}</Text>
+          </Tooltip>
+        }
+      >
         <Text class={WIN_GLYPH} style={WIN_ICON}>{maximized() ? "\uE923" : "\uE922"}</Text>
       </View>
-      <View class={WIN_BTN} desktop={{ windowControl: "close" }}>
+      <View
+        class={WIN_BTN}
+        desktop={{ windowControl: "close" }}
+        tooltip={
+          // 按 × 的那一刻才需要知道「不是退出」，所以这句话挂在这儿，
+          // 默认 500ms 延迟（系统 tooltip 的手感），鼠标一停就出来。
+          <Tooltip class={TIP}>
+            <Text class={TIP_TEXT}>关窗会收进托盘，变速继续生效；真退出请用托盘菜单。</Text>
+          </Tooltip>
+        }
+      >
         <Text class={WIN_GLYPH} style={WIN_ICON}>{"\uE8BB"}</Text>
       </View>
     </View>
