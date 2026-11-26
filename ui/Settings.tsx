@@ -14,6 +14,7 @@ import { Scroll, signal, Text, View } from "nsh";
 import type { JSX } from "nsh";
 import { Button, Collapsible, NumberInput, Slider, Switch } from "nsh/base";
 import { Area, Grid, Line, Plot, PlotAxis } from "nsh/base/plot";
+import type { ResizeEdge } from "nsh/desktop";
 import * as api from "./lib/api";
 import { Caption, Card, Metric, Note, Row, Value } from "./components/ui";
 import { bindWindow, installTray, interceptClose } from "./lib/desktop";
@@ -27,6 +28,11 @@ import { gainText, speedText } from "./format";
 const BTN = "h-8 flex-row items-center justify-center rounded-full px-3";
 const BTN_GHOST = `${BTN} border border-border hover:bg-accent`;
 const BTN_DANGER = `${BTN} border border-destructive hover:bg-accent`;
+/** 提示条里的按钮：比正文按钮矮一档，不跟正文抢地方。 */
+const BTN_SM = "h-7 flex-row items-center justify-center rounded-full px-3 border border-border hover:bg-accent";
+/** 自绘标题栏里的窗口按钮：只有 hover 底色，符号自己画（系统不画了）。 */
+const WIN_BTN = "h-7 w-9 flex-row items-center justify-center rounded-md hover:bg-accent";
+const WIN_GLYPH = "text-xs text-foreground";
 /** 分段控件的两半：选中那半填色，另一半只留 hover。 */
 const SEG_ON = "h-7 flex-row items-center justify-center rounded-full px-3 bg-primary";
 const SEG_OFF = "h-7 flex-row items-center justify-center rounded-full px-3 hover:bg-accent";
@@ -225,9 +231,58 @@ function statusDot(): string {
   return "size-2 rounded-full bg-primary";
 }
 
+/**
+ * 三个窗口按钮（`frame: "none"` 之后系统不画了）。
+ *
+ * 用 `windowControl` 交给平台执行：最小化/最大化/关闭都是系统行为，关闭按下去
+ * 走 `closeOnPress`（所以还是收进托盘），鼠标移到 □ 上仍有 Win11 的贴靠布局。
+ */
+function WindowButtons(): JSX.Element {
+  return (
+    <View class="flex-row items-center gap-1">
+      <View class={WIN_BTN} desktop={{ windowControl: "minimize" }}>
+        <Text class={WIN_GLYPH}>–</Text>
+      </View>
+      <View class={WIN_BTN} desktop={{ windowControl: "maximize" }}>
+        <Text class={WIN_GLYPH}>□</Text>
+      </View>
+      <View class={WIN_BTN} desktop={{ windowControl: "close" }}>
+        <Text class={WIN_GLYPH}>×</Text>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * 无边框窗口的四边四角。
+ *
+ * `frame: "none"` 之后系统不再提供拖边改大小的热区，这里补 8 条细边：
+ * 4 条边 4px，4 个角 12px，绝对定位压在内容上面，`windowResize` 交给平台。
+ * 直接写进根视图的子节点位置——nsh 的组件不能返回多个根元素。
+ */
+const RESIZE_EDGES: { cls: string; edge: ResizeEdge }[] = [
+  { cls: "absolute left-0 right-0 top-0 h-1", edge: "top" },
+  { cls: "absolute left-0 right-0 bottom-0 h-1", edge: "bottom" },
+  { cls: "absolute left-0 top-0 bottom-0 w-1", edge: "left" },
+  { cls: "absolute right-0 top-0 bottom-0 w-1", edge: "right" },
+  { cls: "absolute left-0 top-0 size-3", edge: "topLeft" },
+  { cls: "absolute right-0 top-0 size-3", edge: "topRight" },
+  { cls: "absolute left-0 bottom-0 size-3", edge: "bottomLeft" },
+  { cls: "absolute right-0 bottom-0 size-3", edge: "bottomRight" },
+];
+
+/**
+ * 顶栏：既是应用标题条，也是窗口的拖动区（`frame: "none"` 之后没有系统标题栏了）。
+ *
+ * 一条顶栏同时干两件事，不再额外加一行：左边状态点 + 标题 + 状态，右边是自检、
+ * 总开关和三个窗口按钮。开关和按钮都有 press 处理，落在拖动区里照样点得动。
+ */
 function Header(): JSX.Element {
   return (
-    <View class="flex-row items-center gap-3 border-b border-border bg-card px-4 py-2">
+    <View
+      class="flex-row items-center gap-3 border-b border-border bg-card py-2 pl-4 pr-2"
+      desktop={{ windowDrag: true }}
+    >
       <View class={statusDot()} />
       <View class="flex-1 flex-col">
         <Text class="text-base font-semibold text-foreground">CvtMouse 鼠标无级变速</Text>
@@ -242,6 +297,8 @@ function Header(): JSX.Element {
         trackClass={SWITCH_TRACK}
         thumbClass={SWITCH_THUMB}
       />
+      <View class="mx-1 h-5 w-px bg-border" />
+      <WindowButtons />
     </View>
   );
 }
@@ -583,14 +640,19 @@ function LogCard(): JSX.Element {
   );
 }
 
-/** 状态提示条：提权（可能带操作按钮）+ 关窗行为。常驻在顶部，不随内容滚走。 */
+/**
+ * 状态提示条：提权（可能带操作按钮）+ 关窗行为。常驻在顶部，不随内容滚走。
+ *
+ * 红字和按钮分两行：一行里塞「一句长红字 + 一个按钮」会互相挤，读起来乱。
+ * 文字占满整行、按钮单独一行靠左，按钮也降一档高度（`BTN_SM`）。
+ */
 function Hints(): JSX.Element {
   return (
-    <View class="flex-col gap-1.5 px-4 pb-1">
+    <View class="flex-col items-start gap-2 px-4 pb-1">
       {meta.hint ? (
-        <View class="flex-row items-center gap-3">
+        <View class="flex-col items-start gap-2">
           <Note ok={false} text={meta.hint} />
-          <Button class={BTN_GHOST} onPress={relaunchElevated}>
+          <Button class={BTN_SM} onPress={relaunchElevated}>
             <Text class={LABEL}>以管理员重启</Text>
           </Button>
         </View>
@@ -618,7 +680,7 @@ export function Settings(): JSX.Element {
   installTray({ enabled: () => config().enabled, onToggle: toggleEnabled });
 
   return (
-    <View class="flex-1 flex-col bg-background">
+    <View class="relative flex-1 flex-col bg-background">
       <Header />
       <StatsStrip />
       <Hints />
@@ -637,6 +699,9 @@ export function Settings(): JSX.Element {
           <Footer />
         </View>
       </Scroll>
+      {RESIZE_EDGES.map((item) => (
+        <View class={item.cls} desktop={{ windowResize: item.edge }} />
+      ))}
     </View>
   );
 }

@@ -9,6 +9,7 @@
   "window": {
     "title": "CvtMouse 鼠标无级变速",
     "defaultSize": { "width": 880, "height": 760 },
-    "minSize": { "width": 720, "height": 560 }
+    "minSize": { "width": 720, "height": 560 },
+    "frame": "none"
   }
 }

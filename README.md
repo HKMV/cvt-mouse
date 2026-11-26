@@ -119,7 +119,7 @@ src/                    Rust 后端
    ├─ log.rs            内存环形缓冲 + 500ms 落盘（钩子回调里禁止 IO）
    └─ store.rs          config.json 的路径与读写
 ui/                     TSX 界面
-├─ Settings.tsx         整页设置
+├─ Settings.tsx         整页设置（顶栏兼任标题栏和拖动区，四边四角拖边也在里面）
 ├─ format.ts            倍率/速度的文字
 ├─ components/ui.tsx    卡片、一行设置、读数（只有布局，没有控件）
 └─ lib/                外部依赖
@@ -129,6 +129,12 @@ assets/                 图标
 ├─ icon.svg             设计源文件，改这个
 └─ icon.png             1024×1024，`nsh.json` 的 `"icon"` 指它（`nsh package` 用）
 ```
+
+窗口是**无边框**的（`nsh.json` 里 `"frame": "none"`）：系统连标题栏、边框和三个
+窗口按钮都不画，所以这些得自己做——顶栏（状态点 + 标题 + 自检 + 总开关 + 窗口按钮）
+兼任标题栏和拖动区，四边四角的拖边热区补在根视图上，用的是 nsh 的
+`desktop={{ windowDrag }}` / `windowControl` / `windowResize`。关闭按钮走的仍是
+`closeOnPress`，所以还是收进托盘而不是退出。
 
 图标改了 svg 之后要重新导出 png（无头 Edge 渲染，圆角外面是透明的）：
 
