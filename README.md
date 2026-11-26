@@ -9,7 +9,7 @@
 
 不绑定品牌和型号——只要是一只标准 HID 鼠标（有线、2.4G、蓝牙都算），装上去就生效。
 
-用 Rust 写核心（Win32 低级鼠标钩子 + 注入），界面用 [nsh](https://github.com/nsh-rs/nsh)（TSX）。
+用 Rust 写核心（Win32 低级鼠标钩子 + 注入），界面用 [nsh](https://github.com/longbridge/nsh)（TSX）。
 
 ## 为什么滚轮必须走钩子
 
@@ -193,3 +193,7 @@ assets/                 图标
 
 另外两道保险也留着：单个事件超过 2 格（`MAX_SANE_UNITS`）或速度超过 200 格/秒
 （`MAX_SANE_VELOCITY`）一律原样放行——那不是人手滚出来的，放大它只会帮倒忙。
+
+## 许可证
+
+[MIT](LICENSE)。

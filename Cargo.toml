@@ -3,6 +3,8 @@ name = "cvtmouse"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "MIT"
+repository = "https://github.com/HKMV/cvt-mouse"
 description = "鼠标无级变速：滚轮按滚动速度自动加速、慢滚保持原生手感（指针变速在计划中）"
 
 [workspace]
