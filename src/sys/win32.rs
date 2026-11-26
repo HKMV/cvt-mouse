@@ -7,19 +7,20 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::ptr;
 
-use windows_sys::Win32::Foundation::{CloseHandle, HWND, POINT};
+use windows_sys::Win32::Foundation::{BOOL, CloseHandle, HWND, LPARAM, POINT};
+use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
 use windows_sys::Win32::Security::{
     GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation,
 };
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
-    QueryFullProcessImageNameW,
+    GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken,
+    PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GA_ROOT, GetAncestor, GetCursorPos, GetWindowThreadProcessId, SPI_GETWHEELSCROLLLINES,
-    SPI_SETWHEELSCROLLLINES, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SW_SHOWNORMAL,
-    SystemParametersInfoW, WindowFromPoint,
+    EnumWindows, GA_ROOT, GW_OWNER, GetAncestor, GetCursorPos, GetWindow, GetWindowThreadProcessId,
+    IsWindowVisible, SPI_GETWHEELSCROLLLINES, SPI_SETWHEELSCROLLLINES, SPIF_SENDCHANGE,
+    SPIF_UPDATEINIFILE, SW_SHOWNORMAL, SystemParametersInfoW, WindowFromPoint,
 };
 
 /// UTF-16 + NUL。
@@ -177,6 +178,63 @@ pub fn exe_of_window(hwnd: HWND) -> String {
             .unwrap_or(&path)
             .to_ascii_lowercase()
     }
+}
+
+/// 去掉系统沿窗口外圈画的那条 1px 描边，并显式要圆角。
+///
+/// Windows 11 会给每个顶层窗口描一条 1px 边框（颜色取系统强调色，没开强调色就是
+/// 深灰），白底窗口上看起来就是「突兀的一圈黑线」。这条线是 DWM 画的，TSX 侧改不了，
+/// 只能进程内用 `DwmSetWindowAttribute` 改：`DWMWA_BORDER_COLOR` 设成
+/// `DWMWA_COLOR_NONE` 让它不画；圆角偏好再显式要一次（默认本来就是圆角，写上是为了
+/// 不受窗口样式影响）。
+///
+/// 两项都设成功才返回 `true`。Win10 上这两个属性不存在，返回 `false`，不影响别的功能。
+pub fn soften_window_frame() -> bool {
+    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    const DWMWA_BORDER_COLOR: u32 = 34;
+    const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFE;
+    const DWMWCP_ROUND: u32 = 2;
+
+    let Some(hwnd) = own_window() else {
+        return false;
+    };
+    unsafe {
+        let border = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR,
+            &DWMWA_COLOR_NONE as *const _ as *const _,
+            4,
+        );
+        let corner = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &DWMWCP_ROUND as *const _ as *const _,
+            4,
+        );
+        border == 0 && corner == 0
+    }
+}
+
+/// 本进程的那个主窗口：可见、没有 owner、属于当前进程的第一个顶层窗口。
+fn own_window() -> Option<HWND> {
+    unsafe extern "system" fn callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        unsafe {
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if pid == GetCurrentProcessId() && IsWindowVisible(hwnd) != 0 {
+                if GetWindow(hwnd, GW_OWNER).is_null() {
+                    *(lparam as *mut Option<HWND>) = Some(hwnd);
+                    return 0; // 找到就停
+                }
+            }
+            1
+        }
+    }
+    let mut found: Option<HWND> = None;
+    unsafe {
+        EnumWindows(Some(callback), &mut found as *mut _ as LPARAM);
+    }
+    found
 }
 
 /// 系统当前的「每格滚几行」（`WHEEL_PAGESCROLL` 会读成 `u32::MAX`）。

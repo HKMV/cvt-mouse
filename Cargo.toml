@@ -26,6 +26,8 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_Shell",
     # SendInput / GetAsyncKeyState / RegisterHotKey。
     "Win32_UI_Input_KeyboardAndMouse",
-    # 低级鼠标钩子、WindowFromPoint、SystemParametersInfoW、GetMessageW。
+    # 低级鼠标钩子、WindowFromPoint、SystemParametersInfoW、GetMessageW、EnumWindows。
     "Win32_UI_WindowsAndMessaging",
+    # DwmSetWindowAttribute：去掉系统画在窗口外圈的那条 1px 描边。
+    "Win32_Graphics_Dwm",
 ] }
