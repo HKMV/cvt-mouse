@@ -15,6 +15,7 @@ import type { JSX } from "nsh";
 import { Button, Collapsible, NumberInput, Slider, Switch } from "nsh/base";
 import { Area, Grid, Line, Plot, PlotAxis } from "nsh/base/plot";
 import type { ResizeEdge } from "nsh/desktop";
+import { windowState } from "nsh/desktop";
 import * as api from "./lib/api";
 import { Caption, Card, Metric, Note, Row, Value } from "./components/ui";
 import { bindWindow, installTray, interceptClose } from "./lib/desktop";
@@ -30,9 +31,15 @@ const BTN_GHOST = `${BTN} border border-border hover:bg-accent`;
 const BTN_DANGER = `${BTN} border border-destructive hover:bg-accent`;
 /** 提示条里的按钮：比正文按钮矮一档，不跟正文抢地方。 */
 const BTN_SM = "h-7 flex-row items-center justify-center rounded-full px-3 border border-border hover:bg-accent";
-/** 自绘标题栏里的窗口按钮：只有 hover 底色，符号自己画（系统不画了）。 */
-const WIN_BTN = "h-7 w-9 flex-row items-center justify-center rounded-md hover:bg-accent";
-const WIN_GLYPH = "text-xs text-foreground";
+/**
+ * 自绘标题栏里的窗口按钮：32×44，跟系统标题栏的按钮一个量级。
+ * hover 用 `bg-border` 那档灰（#E5E5E5）：`accent` 只有 #F5F5F5，在白色顶栏上
+ * 几乎看不出来，等于没有悬停反馈。
+ */
+const WIN_BTN = "h-8 w-11 flex-row items-center justify-center hover:bg-border";
+const WIN_GLYPH = "text-foreground";
+/** Windows 自带的图标字体，字形跟系统标题栏是同一套。 */
+const WIN_ICON = { fontFamily: "Segoe Fluent Icons", fontSize: 10 };
 /** 分段控件的两半：选中那半填色，另一半只留 hover。 */
 const SEG_ON = "h-7 flex-row items-center justify-center rounded-full px-3 bg-primary";
 const SEG_OFF = "h-7 flex-row items-center justify-center rounded-full px-3 hover:bg-accent";
@@ -234,20 +241,26 @@ function statusDot(): string {
 /**
  * 三个窗口按钮（`frame: "none"` 之后系统不画了）。
  *
+ * 字形用 Windows 自己的图标字体（Segoe Fluent Icons）取码位，跟系统标题栏
+ * 一模一样：最小化 E921、最大化 E922、还原 E923、关闭 E8BB，10px。
+ * 尺寸也照原生来：32 高、44 宽，比正文按钮大一圈，好点。
+ *
  * 用 `windowControl` 交给平台执行：最小化/最大化/关闭都是系统行为，关闭按下去
- * 走 `closeOnPress`（所以还是收进托盘），鼠标移到 □ 上仍有 Win11 的贴靠布局。
+ * 走 `closeOnPress`（所以还是收进托盘），鼠标移到最大化上仍有 Win11 的贴靠布局。
  */
 function WindowButtons(): JSX.Element {
+  /** 最大化状态下该显示「还原」图标，跟系统标题栏一致。 */
+  const maximized = () => windowState()?.mode === "maximized";
   return (
-    <View class="flex-row items-center gap-1">
+    <View class="flex-row items-center">
       <View class={WIN_BTN} desktop={{ windowControl: "minimize" }}>
-        <Text class={WIN_GLYPH}>–</Text>
+        <Text class={WIN_GLYPH} style={WIN_ICON}>{"\uE921"}</Text>
       </View>
       <View class={WIN_BTN} desktop={{ windowControl: "maximize" }}>
-        <Text class={WIN_GLYPH}>□</Text>
+        <Text class={WIN_GLYPH} style={WIN_ICON}>{maximized() ? "\uE923" : "\uE922"}</Text>
       </View>
       <View class={WIN_BTN} desktop={{ windowControl: "close" }}>
-        <Text class={WIN_GLYPH}>×</Text>
+        <Text class={WIN_GLYPH} style={WIN_ICON}>{"\uE8BB"}</Text>
       </View>
     </View>
   );
