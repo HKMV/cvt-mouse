@@ -110,7 +110,7 @@ nsh run          # 起开发宿主（TSX 改动热更新，Rust 改动重建并�
 nsh check        # cargo check + 入口与 ui/ 的类型检查
 nsh test         # cargo test + ui/ 下的界面测试（无窗口）
 nsh build        # 只出 bundle（.nsh/out），不打包
-.\package.ps1    # 打 Windows 包（exe + zip），并把体积压到最小
+.\package.ps1    # 打 Windows 包（exe + zip）、把 nsh/ 内嵌进 exe、压到最小
 ```
 
 工具链是 nsh 0.7.1：`Cargo.toml` 的 `nsh-core` / `nsh-base` 必须和它对齐，CI 里也钉着
@@ -129,6 +129,10 @@ nsh build        # 只出 bundle（.nsh/out），不打包
 | `-Fast`：`opt-level=s` + `lto=thin` | 35.07 MB | 13.83 MB |
 | 默认：`opt-level=z` + `lto=fat` | **29.94 MB** | **12.65 MB** |
 
+这组数字是 0.1.0 时期量的，看**相对关系**就行：每次升 nsh 都会让绝对值漂一点。现在
+exe 尾巴上还挂着 `nsh/` 的 payload（约 90 KB，见下面「单文件产物」），实测 exe
+30.96 MB / zip 13.03 MB。
+
 两者都带 `codegen-units=1` 和 `strip=symbols`。代价是换档后要重编 2~4 分钟
 （LTO 是全局的，改一行也要重编）；代码没动时再跑只要 2 秒。没开 `panic=abort`
 （还能再省 2~3MB），因为那样任何 panic 都是进程直接消失、连日志都不留。
@@ -144,6 +148,30 @@ nsh build        # 只出 bundle（.nsh/out），不打包
 实测（`package.ps1` 那档产物）：`FileVersion` / `ProductVersion` 就是 `Cargo.toml` 的
 `version`（0.1.2 打出来是 `0.1.2`），另有 `ProductName CvtMouse` /
 `FileDescription CvtMouse 鼠标无级变速` / `OriginalFilename CvtMouse.exe`。
+
+### 单文件产物：`nsh/` 内嵌进 exe
+
+用户拿到的只有一个 `CvtMouse.exe`，**没有 `nsh\` 目录**。做法是打包时把整个 `nsh/`
+按 `[u16 名字长度][名字 UTF-8][u32 数据长度][数据]` 拼成 payload 挂在 exe 尾巴上，末尾
+再跟 `[u64 payload 长度][16 字节魔数]`；程序自己在 `.CRT$XCU`
+（CRT 的初始化段，比 `main` 早）把 payload 解到
+`%LOCALAPPDATA%\CvtMouse\runtime\<payload 摘要>\`，然后把 `NSH_APP_DIR` 指过去——runner
+就当那是它的 `nsh/`。解包逻辑在 `src/infra/embed.rs`，挂尾巴在 `package.ps1`。
+
+为什么要绕这一圈：nsh 0.7.1 的 runner 里，应用目录只有两个来源
+（`current_exe().parent()/nsh` 或 `NSH_APP_DIR`），`AssetBase` 只有「目录」和「HTTP」
+两种（没有内存态），`nsh package` 也没有内嵌开关。不改 nsh 又要单文件，就只能让 exe
+自己把资源写出来。
+
+三个已知代价（都不影响使用，写下来免得以后踩）：
+
+* 第一次启动要解 90 KB 到 `%LOCALAPPDATA%`：实测冷启动到窗口出现 317 ms，第二次
+  283 ms，且**第二次不写盘**（目录按 payload 摘要分，命中直接复用）；
+* 设了 `NSH_APP_DIR` 之后 nsh 把自己当「开发运行」（`nsh-windows-app` 里
+  `developing = NSH_APP_DIR.is_some()`）：login item 不注册、nsh 自己那套日志过滤器放
+  宽。本程序不注册开机自启、日志走自己写的那份，所以这两条都碰不到；
+* 缓存目录不自动清理（每个版本约 90 KB），删掉会自动重建。`nsh run` / `nsh test` 里
+  exe 尾巴上没有魔数，这段逻辑看一眼就返回，开发流程一个字不变。
 
 目录按「谁碰什么」分开：改算法不用碰系统接口，改界面不用碰 Win32：
 
@@ -171,7 +199,8 @@ src/                    Rust 后端
 │  └─ clock.rs          时间戳（SYSTEMTIME）与单调毫秒
 └─ infra/               落地：只有这里写文件
    ├─ log.rs            内存环形缓冲 + 500ms 落盘（钩子回调里禁止 IO）
-   └─ store.rs          config.json 的路径与读写
+   ├─ store.rs          config.json 的路径与读写
+   └─ embed.rs          exe 尾巴上的 nsh/ 解包（进程起来的第一件事）
 ui/                     TSX 界面
 ├─ Settings.tsx         整页设置（顶栏兼任标题栏和拖动区，四边四角拖边也在里面）
 ├─ format.ts            倍率/速度的文字
@@ -265,8 +294,9 @@ git push origin v0.1.0
 
 1. 检出这个 tag，装 Rust stable 和 nsh；
 2. 核对 tag 与 `Cargo.toml`、`nsh.json` 的版本；
-3. 跑 `package.ps1`（`opt-level=z` + `lto=fat`，约 7 分钟），产物改名成
-   `CvtMouse-<tag>-windows-x64.zip`（程序目录 + README + LICENSE）；
+3. 跑 `package.ps1`（`opt-level=z` + `lto=fat`，本机约 3.5 分钟、CI 冷缓存 16~23 分钟），
+   把 `nsh/` 内嵌进 exe，再改名成 `CvtMouse-<tag>-windows-x64.zip`
+   （程序目录里只有一个 exe，外加 README + LICENSE）；
 4. 生成 `SHA256SUMS.txt`，用 tag 说明当发布正文，建 Release（已存在则只覆盖产物和正文）。
 
 想重发同一个 tag：Actions 页面手动 Run workflow、填 tag 名即可，不用重建 tag。
