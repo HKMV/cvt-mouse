@@ -126,12 +126,25 @@ nsh build        # 只出 bundle（.nsh/out），不打包
 （LTO 是全局的，改一行也要重编）；代码没动时再跑只要 2 秒。没开 `panic=abort`
 （还能再省 2~3MB），因为那样任何 panic 都是进程直接消失、连日志都不留。
 
+### exe 属性页里的版本
+
+`nsh package` 会把它的 runner 复制成 `CvtMouse.exe`、把图标补进去，但**不写版本资源**
+（`nsh.exe` 里连 `VS_VERSION_INFO` 这个字符串都没有），所以属性页的「文件版本」本来是空的。
+版本信息只能由我们自己的 crate 带进去：`app.rc` 写一份 VERSIONINFO，`build.rs` 把里面的
+`@VERSION@` / `@VERSION_QUAD@` 换成 `Cargo.toml` 的 `version`（版本号只有一处真相，发版
+流程里不用像别的项目那样 sed 改 app.rc），`embed-resource` 编成资源段随 crate 链进 exe。
+
+实测（`package.ps1` 那档产物）：`FileVersion 0.1.0` / `ProductVersion 0.1.0` /
+`ProductName CvtMouse` / `FileDescription CvtMouse 鼠标无级变速`。
+
 目录按「谁碰什么」分开：改算法不用碰系统接口，改界面不用碰 Win32：
 
 ```text
 App.tsx                 入口，只 mount（必须在仓库根：nsh 认 `nsh.json` 里的 `"rust": "."`，
                         而 `nsh.json` 必须和入口同级——`nsh package` 的说明原文是
                         「Metadata comes from `nsh.json` next to the entry」）
+app.rc                  Windows 资源脚本：exe 属性页里的产品名 / 说明 / 版本（版本是占位符）
+build.rs                把 app.rc 的占位符换成 Cargo.toml 的 version，再编进资源段
 src/                    Rust 后端
 ├─ lib.rs               只有注册（nsh 要求 `#[native_module]` 在 crate 根）
 ├─ api/                 nsh 边界：Backend 的每个方法，JSON 文本进出

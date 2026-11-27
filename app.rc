@@ -1,0 +1,33 @@
+// Windows 可执行文件的资源脚本。
+//
+// 只放版本信息：图标由 `nsh package` 从 nsh.json 的 "icon" 那条 PNG 转成 ico 再
+// 打进 exe 的资源段（`nsh\icon.ico`），这里再写一条 ICON 会和它抢 1 号资源。
+//
+// 版本号不写死：`@VERSION@` / `@VERSION_QUAD@` 由 build.rs 用 Cargo.toml 的
+// `version` 替换（版本号只有一处真相，不用像别的项目那样在发版流程里 sed 改）。
+// 所以这份 rc 不能直接喂给 rc.exe，要经过 build.rs。
+1 VERSIONINFO
+FILEVERSION @VERSION_QUAD@
+PRODUCTVERSION @VERSION_QUAD@
+FILEOS 0x40004
+FILETYPE 0x1
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "080404B0"
+    BEGIN
+      VALUE "CompanyName", "HKMV"
+      VALUE "FileDescription", "CvtMouse 鼠标无级变速"
+      VALUE "FileVersion", "@VERSION@"
+      VALUE "InternalName", "CvtMouse"
+      VALUE "LegalCopyright", "MIT License"
+      VALUE "OriginalFilename", "CvtMouse.exe"
+      VALUE "ProductName", "CvtMouse"
+      VALUE "ProductVersion", "@VERSION@"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x804, 1200
+  END
+END

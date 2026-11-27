@@ -9,6 +9,11 @@ description = "鼠标无级变速：滚轮按滚动速度自动加速、慢滚�
 
 [workspace]
 
+[build-dependencies]
+# 把 app.rc 编成资源段（版本信息）塞进 exe；非 Windows 目标上它什么也不做
+# （build.rs 里已经用 cfg 圈住了）。
+embed-resource = "3"
+
 [dependencies]
 nsh-core = "0.7.1"
 nsh-base = "0.7.1"
