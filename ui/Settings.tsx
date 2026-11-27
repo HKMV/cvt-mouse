@@ -10,12 +10,13 @@
 //!    写成组件体里的常量会冻在首帧。
 //! 2. 列表用 `.map()` 直接写在子节点位置；nsh 没有 React 的 `key`。
 
-import { Scroll, signal, Text, View } from "nsh";
+import { Image, Scroll, signal, Text, View } from "nsh";
 import type { JSX } from "nsh";
 import { Button, Collapsible, NumberInput, Slider, Switch, Tooltip } from "nsh/base";
 import { Area, Grid, Line, Plot, PlotAxis } from "nsh/base/plot";
 import type { ResizeEdge } from "nsh/desktop";
 import { windowState } from "nsh/desktop";
+import appIcon from "../assets/icon.svg";
 import * as api from "./lib/api";
 import { Caption, Card, Metric, Note, Row, Value } from "./components/ui";
 import { bindWindow, installTray, interceptClose, acceptRelaunch } from "./lib/desktop";
@@ -325,6 +326,8 @@ function Header(): JSX.Element {
       class="flex-row items-center gap-3 border-b border-border bg-card py-2 pl-4 pr-2"
       desktop={{ windowDrag: true }}
     >
+      {/* 图标就是窗口/任务栏那个（同一份 assets/icon.svg），方角外面是透明的。 */}
+      <Image src={appIcon} class="h-6 w-6" />
       <View class={statusDot()} />
       <View class="flex-1 flex-col">
         <Text class="text-base font-semibold text-foreground">CvtMouse 鼠标无级变速</Text>
