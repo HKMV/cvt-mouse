@@ -51,7 +51,7 @@ env:
   # 而 `nsh package` 拒绝为别的 nsh 编的依赖：v0.1.0 第一次发版就是这么挂的——本机
   # 是 0.6.1，CI 装到当天的 latest 0.7.1，报 `cvtmouse 0.1.0 requires nsh-core ^0.6.1`。
   # 升 nsh 要三处一起动：这个变量、Cargo.toml 的 nsh-core / nsh-base，然后重跑 nsh test。
-  NSH_VERSION: v0.7.1
+  NSH_VERSION: v0.7.2
 
 jobs:
   build:

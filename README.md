@@ -113,7 +113,7 @@ nsh build        # 只出 bundle（.nsh/out），不打包
 .\package.ps1    # 打 Windows 包（exe + zip）、把 nsh/ 内嵌进 exe、压到最小
 ```
 
-工具链是 nsh 0.7.1：`Cargo.toml` 的 `nsh-core` / `nsh-base` 必须和它对齐，CI 里也钉着
+工具链是 nsh 0.7.2：`Cargo.toml` 的 `nsh-core` / `nsh-base` 必须和它对齐，CI 里也钉着
 同一个版本（见下面「发布」一节）。
 
 ### 打包体积
@@ -131,11 +131,41 @@ nsh build        # 只出 bundle（.nsh/out），不打包
 
 这组数字是 0.1.0 时期量的，看**相对关系**就行：每次升 nsh 都会让绝对值漂一点。现在
 exe 尾巴上还挂着 `nsh/` 的 payload（约 90 KB，见下面「单文件产物」），实测 exe
-30.96 MB / zip 13.03 MB。
+30.97 MB / zip 13.03 MB。
 
 两者都带 `codegen-units=1` 和 `strip=symbols`。代价是换档后要重编 2~4 分钟
 （LTO 是全局的，改一行也要重编）；代码没动时再跑只要 2 秒。没开 `panic=abort`
 （还能再省 2~3MB），因为那样任何 panic 都是进程直接消失、连日志都不留。
+
+### feature 不用我们管（也管不了）
+
+runner 里哪些模块编进去，是 **nsh 自己按「这个 app 实际 import / link 了什么」挑的**，
+`nsh package -v` 会把决定逐条打出来（实测 0.7.2）：
+
+```text
+keep `js`: the app has a JS bundle
+keep `net`: `fetch` and remote images depend on data, not imports
+keep `svg`: an image's format depends on data, not imports
+keep `plot`: the app links `nsh_part_plot`
+leave out `shader` `editor` `rich-editor` `term` `emoji-picker` `highlight` `math`
+          `zlib` `crypto` `websocket` `updater` `webview` `sound` `media`
+```
+
+手工关是关不掉的，三条都试过：
+
+* 宿主 crate `.nsh/rust/windows-app/Cargo.toml` 里确实有一条全量的 `default = [...]`，但
+  每次 `nsh package` 都会把它重写回去（改完再跑，4 秒后就被覆盖）；
+* `nsh.json` 的 `"features"` 说的是 **app 自己 crate 的** Cargo feature，不是 runner 的
+  （nsh 自己的帮助原文：*The crate's Cargo features to turn on*）；
+* `nsh package` 没有 `--features`，也没有相关的环境变量。
+
+**wgpu 去不掉**：它是 `nsh-engine` 的**非可选依赖**（`cargo tree -i wgpu`：`nsh-engine →
+wgpu 29.0.4`，`naga` 同一条链），跟 feature 无关。想在应用侧省掉它，只能等上游把它
+feature 化。
+
+0.7.1 → 0.7.2 实测（本机，同一套 profile 变量）：exe 32,464,235 → **32,473,451 B**
+（+9,216 B），zip 13,654,948 → **13,664,536 B**（+9,588 B）。升版本不省体积；0.7.2 打印的
+这批「leave out」说明它一直精挑过，所以裁剪前后几乎没差。
 
 ### exe 属性页里的版本
 
@@ -158,7 +188,7 @@ exe 尾巴上还挂着 `nsh/` 的 payload（约 90 KB，见下面「单文件产
 `%LOCALAPPDATA%\CvtMouse\runtime\<payload 摘要>\`，然后把 `NSH_APP_DIR` 指过去——runner
 就当那是它的 `nsh/`。解包逻辑在 `src/infra/embed.rs`，挂尾巴在 `package.ps1`。
 
-为什么要绕这一圈：nsh 0.7.1 的 runner 里，应用目录只有两个来源
+为什么要绕这一圈：nsh 0.7.2 的 runner 里，应用目录只有两个来源
 （`current_exe().parent()/nsh` 或 `NSH_APP_DIR`），`AssetBase` 只有「目录」和「HTTP」
 两种（没有内存态），`nsh package` 也没有内嵌开关。不改 nsh 又要单文件，就只能让 exe
 自己把资源写出来。
@@ -302,7 +332,7 @@ git push origin v0.1.0
 想重发同一个 tag：Actions 页面手动 Run workflow、填 tag 名即可，不用重建 tag。
 发布说明里如果混进了手工折行，CI 会用 `tools/notes-reflow.py` 自动合并并留一条 warning。
 
-**nsh 在 CI 里是钉版本的**（`env.NSH_VERSION`，现在 `v0.7.1`，和 `Cargo.toml` 的
+**nsh 在 CI 里是钉版本的**（`env.NSH_VERSION`，现在 `v0.7.2`，和 `Cargo.toml` 的
 `nsh-core` / `nsh-base` 对齐）。安装脚本默认装 `latest`，而上游 2026-11-25 把 latest
 从 0.6.1 换成了 0.7.1——0.7.1 直接拒绝 0.6 时代的依赖（`cvtmouse 0.1.0 requires
 nsh-core ^0.6.1`），v0.1.0 第一次发版就是这么挂的。升 nsh 是四件事一起做：改
