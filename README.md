@@ -141,8 +141,9 @@ nsh build        # 只出 bundle（.nsh/out），不打包
 `@VERSION@` / `@VERSION_QUAD@` 换成 `Cargo.toml` 的 `version`（版本号只有一处真相，发版
 流程里不用像别的项目那样 sed 改 app.rc），`embed-resource` 编成资源段随 crate 链进 exe。
 
-实测（`package.ps1` 那档产物）：`FileVersion 0.1.0` / `ProductVersion 0.1.0` /
-`ProductName CvtMouse` / `FileDescription CvtMouse 鼠标无级变速`。
+实测（`package.ps1` 那档产物）：`FileVersion` / `ProductVersion` 就是 `Cargo.toml` 的
+`version`（0.1.1 打出来是 `0.1.1`），另有 `ProductName CvtMouse` /
+`FileDescription CvtMouse 鼠标无级变速` / `OriginalFilename CvtMouse.exe`。
 
 目录按「谁碰什么」分开：改算法不用碰系统接口，改界面不用碰 Win32：
 
