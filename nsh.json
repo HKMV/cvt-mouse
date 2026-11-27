@@ -1,8 +1,8 @@
 {
   "name": "CvtMouse",
   "id": "top.codeslife.cvtmouse",
-  "version": "0.1.2",
-  "build": 3,
+  "version": "0.1.3",
+  "build": 4,
   "rust": ".",
   "icon": "assets/icon.png",
   "singleInstance": true,

@@ -146,7 +146,7 @@ exe 尾巴上还挂着 `nsh/` 的 payload（约 90 KB，见下面「单文件产
 流程里不用像别的项目那样 sed 改 app.rc），`embed-resource` 编成资源段随 crate 链进 exe。
 
 实测（`package.ps1` 那档产物）：`FileVersion` / `ProductVersion` 就是 `Cargo.toml` 的
-`version`（0.1.2 打出来是 `0.1.2`），另有 `ProductName CvtMouse` /
+`version`（0.1.3 打出来是 `0.1.3`），另有 `ProductName CvtMouse` /
 `FileDescription CvtMouse 鼠标无级变速` / `OriginalFilename CvtMouse.exe`。
 
 ### 单文件产物：`nsh/` 内嵌进 exe
