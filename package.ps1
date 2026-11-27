@@ -20,6 +20,7 @@
 #   | opt-level=s + lto=thin + cgu=1    | 35.07MB | 13.83MB |
 #   | opt-level=z + lto=fat + cgu=1     | 29.94MB | 12.65MB |
 #   | 上面那组 + panic=abort            | 19.75MB |  9.81MB |
+#   | 再去掉没用的 nsh-base 依赖        | 16.12MB |  7.75MB |
 #
 # 用最省的那组：`opt-level=z`（体积优先）、`lto=fat`（跨 crate 内联后能砍掉
 # 没人调的泛型实例）、`codegen-units=1`（给 LTO 完整视野）、`strip=symbols`、

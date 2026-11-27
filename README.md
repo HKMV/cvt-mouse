@@ -128,11 +128,14 @@ profile 环境变量，`package.ps1` 就是把这几个变量设好再调 `nsh p
 | 不设（`nsh package` 直跑） | 50.09 MB | 19.06 MB |
 | `-Fast`：`opt-level=s` + `lto=thin` | 35.07 MB | 13.83 MB |
 | `opt-level=z` + `lto=fat`（0.1.3 及以前） | 30.97 MB | 13.03 MB |
-| **上面那组 + `panic=abort`（现在）** | **19.75 MB** | **9.81 MB** |
+| 上面那组 + `panic=abort` | 19.75 MB | 9.81 MB |
+| **再去掉 `nsh-base` 依赖（现在）** | **16.12 MB** | **7.75 MB** |
 
 `lto=fat` + `codegen-units=1` + `strip=symbols` 一直开着。`panic=abort` 一个开关就砍掉
 **11.2 MB**（32,473,451 → 20,707,179 B）：runner 里 26 处 `catch_unwind` 的展开表、
-landing pad 全部消失，zip 也从 13.66 MB 降到 10.28 MB。
+landing pad 全部消失。再去掉我们从来没用的 `nsh-base` 依赖（见下一节）又砍掉 **3.63 MB**
+（runner 20,557,824 → 16,756,224 B）。合起来 exe 32.47 → 16.12 MB（−50%），zip 13.66 →
+7.75 MB（−43%）。
 
 代价：nsh 运行时原本靠 `catch_unwind` 把 Rust panic 拦下来转成错误（`nsh-core/main_thread.rs`、
 `nsh-js/classes.rs`、`nsh-engine/host_channel.rs` 一共 26 处），abort 之后 Rust 侧一 panic
@@ -143,9 +146,9 @@ landing pad 全部消失，zip 也从 13.66 MB 降到 10.28 MB。
 `opt-level` 用 `z` 而不是 `s`：同一份代码只差这一项，`z` 的 runner 是 19.61 MB，`s` 是
 22.99 MB（差 3.4 MB）——既然一切为了体积，就用 `z`。
 
-编译时间：换档后 LTO 全量重编约 6~7 分钟（改一行也要重编）；代码没动时再跑只要 2 秒。
+编译时间：换档后 LTO 全量重编约 4~7 分钟（改一行也要重编）；代码没动时再跑只要 2 秒。
 
-### feature 不用我们管（也管不了）
+### runner 的 feature 怎么定的
 
 runner 里哪些模块编进去，是 **nsh 自己按「这个 app 实际 import / link 了什么」挑的**，
 `nsh package -v` 会把决定逐条打出来（实测 0.7.2）：
@@ -159,7 +162,7 @@ leave out `shader` `editor` `rich-editor` `term` `emoji-picker` `highlight` `mat
           `zlib` `crypto` `websocket` `updater` `webview` `sound` `media`
 ```
 
-手工关是关不掉的，三条都试过：
+想改这个判断本身是改不动的，三条都试过：
 
 * 宿主 crate `.nsh/rust/windows-app/Cargo.toml` 里确实有一条全量的 `default = [...]`，但
   每次 `nsh package` 都会把它重写回去（改完再跑，4 秒后就被覆盖）；
@@ -168,26 +171,48 @@ leave out `shader` `editor` `rich-editor` `term` `emoji-picker` `highlight` `mat
   名做探针塞进去，`nsh package -v` 的 keep/leave 列表一字未变，也不报错；
 * `nsh package` 没有 `--features`，也没有相关的环境变量。
 
-留下的 `net` / `svg` 值多少钱，直接按 feature 集合重编量（同一套 profile）：
+**但 `leave out` 会被我们自己的依赖悄悄抵消掉。** 这里踩过一次：`Cargo.toml` 里写着
+`nsh-base = "0.7.2"`（默认特性 = `editor` / `highlight` / `plot` / `rich-editor` / `term`），
+而 `src/` 里一次都没用到 `nsh_base`。cargo 的 feature 统一让 nsh 的 `leave out highlight`
+失效，`syntect` + `oniguruma` + `ropey` + `vte` 全被链进 exe（成品里 `onig` 有 137 处字符串）。
 
-| feature 集合 | runner exe | 差 |
-| --- | --- | --- |
-| `js,net,svg,plot`（实际用的） | 32,324,096 B | — |
-| `js,svg,plot`（去掉 `net`） | 31,907,840 B | −416 KB |
-| `js,plot`（再去掉 `svg`） | 29,782,016 B | −2.03 MB |
+```text
+$ cargo tree -i syntect
+syntect v5.3.0
+├── nsh-base v0.7.2
+│   ├── cvtmouse v0.1.3 (D:\dev\project\i\rust\CvtMouse)   ← 就是这行
+│   └── nsh-app-cvtmouse-windows-app v0.0.0
+```
 
-`net` 拖进来的是 `ureq` + `rustls-platform-verifier` 一套 TLS，`svg` 拖进来的是 `resvg` /
-`usvg` / `tiny-skia` / `fontdb` / `harfrust` / `skrifa` 一整套光栅化，一共 34 个 crate。两个
-都关不掉（nsh 判断不了数据驱动的用法），能上门的那 2.4 MB 得等上游给个声明入口。
+把那行删掉（宿主 crate 自己声明的是 `default-features = false`），`syntect` / `onig` /
+`ropey` / `vte` / `curve25519-dalek` 全部从依赖图消失：
 
-`wgpu` 不在这张单子里：它在 `nsh-engine` 里是 `optional = true`，由 `shader` feature 决定，
-而 runner 的判断是 `leave out shader`，所以打包产物里**根本没有 wgpu**
-（按打包用的 feature 集合跑 `cargo tree -i wgpu` 会直接报 `package ID specification
-wgpu did not match any packages`）。
+| | runner exe |
+| --- | --- |
+| 带 `nsh-base`（默认特性） | 20,557,824 B |
+| 删掉 `nsh-base` | **16,756,224 B（−3.63 MB）** |
 
-0.7.1 → 0.7.2 实测（本机，同一套 profile 变量）：exe 32,464,235 → **32,473,451 B**
-（+9,216 B），zip 13,654,948 → **13,664,536 B**（+9,588 B）。升版本不省体积；0.7.2 打印的
-这批「leave out」说明它一直精挑过，所以裁剪前后几乎没差。
+教训：**自己 crate 的依赖特性也会决定 runner 里有什么**，删无用依赖和关默认特性都要做。
+
+### 剩下还能压的（都量过了）
+
+| 手段 | 收益 | 代价 | 结论 |
+| --- | --- | --- | --- |
+| 去掉 `nsh-base` | −3.63 MB | 无（本来就没用到） | **已做** |
+| `panic=abort` | −11.2 MB | panic 不再被拦，但 hook 仍写日志 | **已做** |
+| 关掉 `net` | −416 KB | nsh 判断不了，关不掉 | 等上游 |
+| 关掉 `svg` | −2.03 MB | 同上（`resvg`/`usvg`/`tiny-skia` 一整套） | 等上游 |
+| 发布包换 7z（LZMA2 `-mx9`） | zip 10.28 → **6.81 MB** | GitHub Release 多一个 `.7z`（或换掉 zip） | 可选，零风险 |
+| nightly `-Zbuild-std=std,panic_abort` + `-Zlocation-detail=none` | −1.08 MB | 构建要 nightly + `rust-src`，panic 信息里没有文件名行号 | 可选 |
+| `panic="immediate-abort"` | 几百 KB | panic 完全不格式化，连日志都没有 | 不建议 |
+| UPX | 能压到 7 MB 级 | 杀软误报、每次启动要解压 | 不建议 |
+
+`wgpu` 不在上面这张单子里：它在 `nsh-engine` 里是 `optional = true`，由 `shader` feature
+决定，而 runner 的判断是 `leave out shader`，所以打包产物里**根本没有 wgpu**（按打包用的
+feature 集合跑 `cargo tree -i wgpu` 会直接报 `package ID specification wgpu did not match
+any packages`；扫成品也只找到 `Devanagari` 这类文字名里的 `naga`，没有 `naga::` 路径）。
+留一个对照：故意带上 `shader` 编一次，runner 是 23,275,008 B（+2.59 MB），里面 `wgpu` 202 处、
+`naga::` 210 处、`D3D12` 35 处、`Vulkan` 19 处——所以它在不在，一眼就能看出来。
 
 ### exe 属性页里的版本
 

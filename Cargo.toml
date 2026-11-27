@@ -16,7 +16,11 @@ embed-resource = "3"
 
 [dependencies]
 nsh-core = "0.7.2"
-nsh-base = "0.7.2"
+# 不要 `nsh-base`：本 crate 一次都没用到它（`src/` 里只碰 `nsh_core::prelude`），而它的
+# 默认特性是 `editor` / `highlight` / `plot` / `rich-editor` / `term`——关掉 runner 的
+# `highlight` 也没用，feature 统一会把 syntect + oniguruma + ropey + vte 一起拉进来
+# （实测 exe 里 `onig` 有 137 处字符串）。宿主 crate 自己那份是 `default-features = false`，
+# 只要本 crate 不再声明，nsh 的 `leave out` 才真正生效。
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
