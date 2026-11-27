@@ -19,13 +19,30 @@ use windows_sys::Win32::System::Threading::{
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GA_ROOT, GW_OWNER, GetAncestor, GetCursorPos, GetWindow, GetWindowThreadProcessId,
-    IsWindowVisible, SPI_GETWHEELSCROLLLINES, SPI_SETWHEELSCROLLLINES, SPIF_SENDCHANGE,
-    SPIF_UPDATEINIFILE, SW_SHOWNORMAL, SystemParametersInfoW, WindowFromPoint,
+    IsWindowVisible, MB_ICONERROR, MB_SETFOREGROUND, MessageBoxW, SPI_GETWHEELSCROLLLINES,
+    SPI_SETWHEELSCROLLLINES, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SW_SHOWNORMAL,
+    SystemParametersInfoW, WindowFromPoint,
 };
 
 /// UTF-16 + NUL。
 fn wide(text: &str) -> Vec<u16> {
     OsStr::new(text).encode_wide().chain(std::iter::once(0)).collect()
+}
+
+/// 弹一个错误框，用在进程刚起来、还没有日志也没有界面的地方。
+///
+/// 唯一的调用点是内嵌资源解包失败（[`crate::infra::embed`]）：那种情况下 nsh 的
+/// runner 只会说「Cannot read the app bundle in …\nsh」，用户看不出所以然。
+/// `MB_SETFOREGROUND` 不能省——不然框可能开在别的窗口后面，看起来就是「点了没反应」。
+pub fn alert(text: &str) {
+    unsafe {
+        MessageBoxW(
+            ptr::null_mut(),
+            wide(text).as_ptr(),
+            wide("CvtMouse").as_ptr(),
+            MB_ICONERROR | MB_SETFOREGROUND,
+        );
+    }
 }
 
 /// 光标下的目标窗口：程序名 + 这个程序是不是提权的。
