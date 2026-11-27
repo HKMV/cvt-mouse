@@ -5,6 +5,7 @@
   "build": 1,
   "rust": ".",
   "icon": "assets/icon.png",
+  "singleInstance": true,
   "appearance": "system",
   "window": {
     "title": "CvtMouse 鼠标无级变速",

@@ -18,7 +18,7 @@ import type { ResizeEdge } from "nsh/desktop";
 import { windowState } from "nsh/desktop";
 import * as api from "./lib/api";
 import { Caption, Card, Metric, Note, Row, Value } from "./components/ui";
-import { bindWindow, installTray, interceptClose } from "./lib/desktop";
+import { bindWindow, installTray, interceptClose, acceptRelaunch } from "./lib/desktop";
 import { gainText, speedText } from "./format";
 
 // ---- class 常量 ----------------------------------------------------------
@@ -761,6 +761,7 @@ export function Settings(): JSX.Element {
   bindWindow();
   interceptClose();
   installTray({ enabled: () => config().enabled, onToggle: toggleEnabled });
+  acceptRelaunch();
 
   return (
     <View class="relative flex-1 flex-col bg-background">

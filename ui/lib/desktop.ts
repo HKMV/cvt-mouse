@@ -59,3 +59,16 @@ export function interceptClose(): void {
   win.set({ closeOnPress: false });
   win.on("closePress", () => hideToTray());
 }
+
+/**
+ * 单实例：`nsh.json` 里 `"singleInstance": true` 让第二次启动直接退出（连窗口都不建），
+ * 把这次启动交给已经在跑的那个实例——先 `reopen`，再 `secondInstance`。
+ *
+ * 所以效果就是用户要的：再点一次图标不会开出第二个窗口，也不会有第二个钩子线程，
+ * 只是把原来那个窗口（可能正收在托盘里）叫回来、置顶，变速状态一个都没丢。
+ */
+export function acceptRelaunch(): void {
+  const reveal = (): void => showWindow();
+  Application.on("reopen", reveal);
+  Application.on("secondInstance", reveal);
+}
