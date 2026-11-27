@@ -120,22 +120,30 @@ nsh build        # 只出 bundle（.nsh/out），不打包
 
 包里的 99% 是 **nsh 的运行时 runner**（我们自己的东西只有 bundle 29KB + 图标 58KB），
 而 runner 是 nsh 用 cargo 在它自己的 workspace 里编的，所以本仓库 `Cargo.toml` 的
-`[profile.release]` 对它无效——只能用 cargo 的 profile 环境变量，`package.ps1` 就是
-把这几个变量设好再调 `nsh package`：
+`[profile.release]` 对它无效（cargo 会忽略成员 crate 的 profile）——只能用 cargo 的
+profile 环境变量，`package.ps1` 就是把这几个变量设好再调 `nsh package`：
 
 | 配置 | exe | zip |
 | --- | --- | --- |
 | 不设（`nsh package` 直跑） | 50.09 MB | 19.06 MB |
 | `-Fast`：`opt-level=s` + `lto=thin` | 35.07 MB | 13.83 MB |
-| 默认：`opt-level=z` + `lto=fat` | **29.94 MB** | **12.65 MB** |
+| `opt-level=z` + `lto=fat`（0.1.3 及以前） | 30.97 MB | 13.03 MB |
+| **上面那组 + `panic=abort`（现在）** | **19.75 MB** | **9.81 MB** |
 
-这组数字是 0.1.0 时期量的，看**相对关系**就行：每次升 nsh 都会让绝对值漂一点。现在
-exe 尾巴上还挂着 `nsh/` 的 payload（约 90 KB，见下面「单文件产物」），实测 exe
-30.97 MB / zip 13.03 MB。
+`lto=fat` + `codegen-units=1` + `strip=symbols` 一直开着。`panic=abort` 一个开关就砍掉
+**11.2 MB**（32,473,451 → 20,707,179 B）：runner 里 26 处 `catch_unwind` 的展开表、
+landing pad 全部消失，zip 也从 13.66 MB 降到 10.28 MB。
 
-两者都带 `codegen-units=1` 和 `strip=symbols`。代价是换档后要重编 2~4 分钟
-（LTO 是全局的，改一行也要重编）；代码没动时再跑只要 2 秒。没开 `panic=abort`
-（还能再省 2~3MB），因为那样任何 panic 都是进程直接消失、连日志都不留。
+代价：nsh 运行时原本靠 `catch_unwind` 把 Rust panic 拦下来转成错误（`nsh-core/main_thread.rs`、
+`nsh-js/classes.rs`、`nsh-engine/host_channel.rs` 一共 26 处），abort 之后 Rust 侧一 panic
+进程就退出。**panic hook 仍会跑**（nsh-engine/logging.rs 里 `set_hook`），日志和位置都留得下，
+丢的是「拦下来继续跑」。这是纯体积换健壮性的选择，`package.ps1` 里就是那一行
+`CARGO_PROFILE_RELEASE_PANIC = "abort"`，要去掉删那一行即可。
+
+`opt-level` 用 `z` 而不是 `s`：同一份代码只差这一项，`z` 的 runner 是 19.61 MB，`s` 是
+22.99 MB（差 3.4 MB）——既然一切为了体积，就用 `z`。
+
+编译时间：换档后 LTO 全量重编约 6~7 分钟（改一行也要重编）；代码没动时再跑只要 2 秒。
 
 ### feature 不用我们管（也管不了）
 
@@ -156,12 +164,26 @@ leave out `shader` `editor` `rich-editor` `term` `emoji-picker` `highlight` `mat
 * 宿主 crate `.nsh/rust/windows-app/Cargo.toml` 里确实有一条全量的 `default = [...]`，但
   每次 `nsh package` 都会把它重写回去（改完再跑，4 秒后就被覆盖）；
 * `nsh.json` 的 `"features"` 说的是 **app 自己 crate 的** Cargo feature，不是 runner 的
-  （nsh 自己的帮助原文：*The crate's Cargo features to turn on*）；
+  （nsh 自己的帮助原文：*The crate's Cargo features to turn on*）。拿一个不存在的 feature
+  名做探针塞进去，`nsh package -v` 的 keep/leave 列表一字未变，也不报错；
 * `nsh package` 没有 `--features`，也没有相关的环境变量。
 
-**wgpu 去不掉**：它是 `nsh-engine` 的**非可选依赖**（`cargo tree -i wgpu`：`nsh-engine →
-wgpu 29.0.4`，`naga` 同一条链），跟 feature 无关。想在应用侧省掉它，只能等上游把它
-feature 化。
+留下的 `net` / `svg` 值多少钱，直接按 feature 集合重编量（同一套 profile）：
+
+| feature 集合 | runner exe | 差 |
+| --- | --- | --- |
+| `js,net,svg,plot`（实际用的） | 32,324,096 B | — |
+| `js,svg,plot`（去掉 `net`） | 31,907,840 B | −416 KB |
+| `js,plot`（再去掉 `svg`） | 29,782,016 B | −2.03 MB |
+
+`net` 拖进来的是 `ureq` + `rustls-platform-verifier` 一套 TLS，`svg` 拖进来的是 `resvg` /
+`usvg` / `tiny-skia` / `fontdb` / `harfrust` / `skrifa` 一整套光栅化，一共 34 个 crate。两个
+都关不掉（nsh 判断不了数据驱动的用法），能上门的那 2.4 MB 得等上游给个声明入口。
+
+`wgpu` 不在这张单子里：它在 `nsh-engine` 里是 `optional = true`，由 `shader` feature 决定，
+而 runner 的判断是 `leave out shader`，所以打包产物里**根本没有 wgpu**
+（按打包用的 feature 集合跑 `cargo tree -i wgpu` 会直接报 `package ID specification
+wgpu did not match any packages`）。
 
 0.7.1 → 0.7.2 实测（本机，同一套 profile 变量）：exe 32,464,235 → **32,473,451 B**
 （+9,216 B），zip 13,654,948 → **13,664,536 B**（+9,588 B）。升版本不省体积；0.7.2 打印的

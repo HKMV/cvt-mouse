@@ -19,13 +19,22 @@
 #   | 默认（不设这些变量）              | 50.09MB | 19.06MB |
 #   | opt-level=s + lto=thin + cgu=1    | 35.07MB | 13.83MB |
 #   | opt-level=z + lto=fat + cgu=1     | 29.94MB | 12.65MB |
+#   | 上面那组 + panic=abort            | 19.75MB |  9.81MB |
 #
 # 用最省的那组：`opt-level=z`（体积优先）、`lto=fat`（跨 crate 内联后能砍掉
-# 没人调的泛型实例）、`codegen-units=1`（给 LTO 完整视野）、`strip=symbols`。
-# 代价是打包从 ~1 分钟变成 ~7 分钟（LTO 是全局的，改一行也要重编）。
+# 没人调的泛型实例）、`codegen-units=1`（给 LTO 完整视野）、`strip=symbols`、
+# `panic=abort`。代价是打包从 ~1 分钟变成 ~7 分钟（LTO 是全局的，改一行也要重编）。
 #
-# 没开 `panic=abort`：还能再省 2~3MB，但任何 panic 会变成进程直接消失、
-# 连日志都不留；这个程序的价值就在「出问题能查」，不划算。
+# 为什么这里是环境变量而不是 `Cargo.toml` 的 `[profile.release]`：runner 在
+# `.nsh/rust` 那个 workspace 里编，本 crate 只是它的一个成员，成员的 profile 会被
+# cargo 忽略（还会打一条 "profiles for the non root package will be ignored"）。
+# 同一个 `[profile.release]` 放在 `Cargo.toml` 里只有一层用处：`cargo test --release`
+# 时给本 crate 自己的测试用。
+#
+# `panic=abort` 的代价：nsh 运行时里有 26 处 `catch_unwind`（`nsh-core/main_thread.rs`、
+# `nsh-js/classes.rs`、`nsh-engine/host_channel.rs`），abort 之后这些兜底不再拦截 panic，
+# Rust 侧一 panic 进程就退出。nsh 的 panic hook 仍会写日志（`nsh-engine/logging.rs`
+# 里 `set_hook`），所以「连日志都不留」不成立，丢的是「拦住 panic 继续跑」。
 param(
   # 改了 Rust 代码后正常跑；只想看体积、不想等 LTO 时用 -Fast（省一半时间，包大 5MB）。
   [switch]$Fast,
@@ -47,6 +56,7 @@ if ($Fast) {
 }
 $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "1"
 $env:CARGO_PROFILE_RELEASE_STRIP = "symbols"
+$env:CARGO_PROFILE_RELEASE_PANIC = "abort"
 
 $sw = [Diagnostics.Stopwatch]::StartNew()
 nsh package --target windows

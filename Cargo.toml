@@ -38,3 +38,23 @@ windows-sys = { version = "0.59", features = [
     # DwmSetWindowAttribute：去掉系统画在窗口外圈的那条 1px 描边。
     "Win32_Graphics_Dwm",
 ] }
+
+# 发布版一切为了体积，编译时间让给 CI。
+#
+# 真正进用户手里那个 exe 是 nsh 的 runner，它在 `.nsh/rust` 那个 workspace 里编，
+# 本 crate 只是它的一个成员——所以下面这块对**打包产物**不生效（cargo 会忽略成员
+# 的 profile）。打包产物靠 `package.ps1` 里的 `CARGO_PROFILE_RELEASE_*` 环境变量，
+# 值跟这里保持一致：opt-level=z / lto=fat / codegen-units=1 / strip=symbols /
+# panic=abort。实测（同一份代码，只差 opt-level）：`z` 比 `s` 小 3.4 MB
+# （runner 19.61 MB vs 22.99 MB），所以用 `z`。
+#
+# 放这里的用处只有一个：`cargo test --release` / `cargo build --release` 编本 crate
+# 时用同一套条件，顺便给读的人一个明确声明。
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+# 注意：这条会让 `cargo test --release` 失效（测试框架需要展开）；`nsh test` 走
+# dev profile，不受影响。
+panic = "abort"
+strip = "symbols"
