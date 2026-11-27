@@ -175,12 +175,12 @@ src/                    Rust 后端
 ui/                     TSX 界面
 ├─ Settings.tsx         整页设置（顶栏兼任标题栏和拖动区，四边四角拖边也在里面）
 ├─ format.ts            倍率/速度的文字
+├─ logo.svg             图标矢量原图（界面左上角直接 import，`assets/icon.png` 由它导出）
 ├─ components/ui.tsx    卡片、一行设置、读数（只有布局，没有控件）
 └─ lib/                外部依赖
    ├─ api.ts            唯一 import cvtmouse/native 的地方
    └─ desktop.ts        托盘图标 + 关窗收进托盘
-assets/                 图标与截图
-├─ icon.svg             设计源文件，改这个
+assets/                 打包与展示素材（前端不 import 这里的东西，原因见下）
 ├─ icon.png             1024×1024，`nsh.json` 的 `"icon"` 指它（`nsh package` 用）
 └─ screenshots/         README 里的界面截图（中英文各一套时按 `-zh` / `-en` 分开）
 .github/workflows/      推 `v*` tag 自动打包发版（见下面「发布」）
@@ -198,8 +198,18 @@ tools/notes-reflow.py   发布说明的软换行合并（CI 兜底 + 本地自�
 ```powershell
 & "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" --headless=new --disable-gpu --hide-scrollbars `
   --default-background-color=00000000 --window-size=1024,1024 `
-  --screenshot=assets\icon.png "file:///$(($PWD.Path -replace '\\','/'))/assets/icon.svg"
+  --screenshot=assets\icon.png "file:///$(($PWD.Path -replace '\\','/'))/ui/logo.svg"
 ```
+
+矢量原图放在 `ui/` 而不是 `assets/`，是因为 nsh 打包时**把每个被 import 的图按它在仓库里的相对路径**塞进包里的 `nsh/assets/`——图本身在 `assets/` 下就会叠成 `nsh/assets/assets/…`。同一次 `nsh build` 里放三个探针实测过落点：
+
+| import 的源文件 | 包里的路径 |
+|---|---|
+| `../assets/icon.svg` | `nsh/assets/assets/icon.svg` |
+| `../icon.svg`（仓库根） | `nsh/assets/icon.svg` |
+| `./logo.svg`（在 `ui/` 下） | `nsh/assets/ui/logo.svg` |
+
+`assets/` 那份只给 `nsh.json` 的 `"icon"` 和 README 截图用，不进这条流水线，所以放哪都不会被复制。
 
 自检就一句话：**每个目录只有一个「为什么存在」，看它碰了什么就知道有没有错位**。
 `core` 里出现 `windows_sys` 或 `std::fs` 是错位；`sys` 里出现 `serde_json` 是错位；
