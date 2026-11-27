@@ -63,8 +63,12 @@ jobs:
           # 手动触发时 ref 是分支，这里强制检出被发布的那个 tag。
           ref: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
 
-      # 本机验证过的是 stable（1.99.1）；nsh 的 runner 也要 cargo 编，跟着 stable 走。
-      - uses: dtolnay/rust-toolchain@stable
+      # 打包用 nightly：`package.ps1` 里设了 `RUSTUP_TOOLCHAIN=nightly`，因为它要用
+      # `-Zbuild-std` 把 std 也按 abort / 无 location 重编一遍（省 ~1 MB）。
+      # `-Zbuild-std` 要 rust-src 组件，缺了会在编到 core 时才报错，装在这里最省事。
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
 
       # runner 是 nsh 用 cargo 在它自己的 workspace 里编的，缓存命中与否由
       # nsh 自己决定位置；这一步主要是缓存 ~/.cargo 里的依赖。
@@ -134,6 +138,9 @@ jobs:
       # `nsh package` 出的 zip 里只有程序目录，没有说明和协议；Release 的包
       # 额外塞一份 README / LICENSE，并且按 `<名字>-<tag>-<目标>.zip` 改名，
       # 和别的项目放在一起时一眼能看出是哪个版本、哪个平台。
+      #
+      # 同时压一份 `.7z`：zip 只能 deflate，同一个 exe 用 LZMA2 能再小 ~30%
+      # （19.75 MB 的 exe：zip 10.28 MB vs 7z 6.81 MB）。两个都挂，用户自己挑。
       - name: Collect artifact
         shell: pwsh
         run: |
@@ -143,12 +150,26 @@ jobs:
           Copy-Item ".nsh/out/CvtMouse" $dir -Recurse -Force
           Copy-Item README.md, LICENSE $dir
           Compress-Archive -Path "$dir/*" -DestinationPath "dist/$name.zip" -Force
+
+          $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue).Source
+          if (-not $sevenZip) {
+            $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+            if (-not (Test-Path $sevenZip)) { $sevenZip = $null }
+          }
+          if ($sevenZip) {
+            & $sevenZip a -t7z -mx=9 -ms=on "dist/$name.7z" "$dir/*" | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Output "::warning::7z 压缩失败（exit $LASTEXITCODE），只发 zip" }
+          } else {
+            Write-Output "::warning::runner 上没有 7z，只发 zip"
+          }
           Get-ChildItem -Recurse dist | Select-Object FullName, Length | Format-Table -AutoSize
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.BIN }}-${{ env.TAG }}-windows-x64
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*.7z
           if-no-files-found: error
           retention-days: 7
 

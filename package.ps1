@@ -59,6 +59,28 @@ $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "1"
 $env:CARGO_PROFILE_RELEASE_STRIP = "symbols"
 $env:CARGO_PROFILE_RELEASE_PANIC = "abort"
 
+# ---- 再省 ~1 MB：std 也一起用 abort 重编，并去掉 panic 里的文件名/行号 ------
+# `-Zbuild-std` 是 cargo 的参数，`RUSTFLAGS` 里塞不进去（rustc 会说 unknown unstable
+# option），nsh 又不会替我们传，所以走 cargo 的 unstable 配置环境变量
+# `CARGO_UNSTABLE_BUILD_STD`——它等价于 `.cargo/config.toml` 里的
+# `[unstable] build-std = [...]`，但只影响本脚本这一次调用，别人 `cargo build` /
+# `nsh dev` 用 stable 照样能编。
+#
+# `-Zlocation-detail=none` 去掉 panic 信息里的 `file:line:col`：abort 之后本来也拿不到
+# 回溯，留着只是体积。要排查 panic 的话，把这一条删掉再打一版就行。
+$env:RUSTUP_TOOLCHAIN = "nightly"
+$env:CARGO_UNSTABLE_BUILD_STD = "std,panic_abort"
+$env:RUSTFLAGS = "-Zlocation-detail=none"
+
+# 预检：nightly + rust-src 缺一样，build-std 会在编到 core 时才报一句难懂的错误。
+$nightly = Join-Path $env:USERPROFILE ".rustup\toolchains\nightly-x86_64-pc-windows-msvc"
+if (-not (Test-Path $nightly)) {
+  throw "需要 nightly 工具链（build-std 用）：rustup toolchain install nightly --profile minimal --component rust-src"
+}
+if (-not (Test-Path (Join-Path $nightly "lib\rustlib\src\rust\library"))) {
+  throw "nightly 缺 rust-src：rustup component add rust-src --toolchain nightly"
+}
+
 $sw = [Diagnostics.Stopwatch]::StartNew()
 nsh package --target windows
 if ($LASTEXITCODE -ne 0) { throw "nsh package 失败（exit $LASTEXITCODE）" }
@@ -125,12 +147,26 @@ Remove-Item ".nsh\out\CvtMouse.iss" -Force -ErrorAction SilentlyContinue
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path "$appDir/*" -DestinationPath $zip -Force
 
+# 再压一份 7z：zip 只能 deflate，同一个 exe 用 LZMA2 能再小 ~30%（实测 10.28 → 6.81 MB）。
+# 机器上没有 7z 就跳过，不拦下打包——zip 那份永远在。
+$sevenZip = ".nsh\out\CvtMouse.7z"
+if (Get-Command 7z -ErrorAction SilentlyContinue) {
+  Remove-Item $sevenZip -Force -ErrorAction SilentlyContinue
+  & 7z a -t7z -mx=9 -ms=on $sevenZip $exe | Out-Null
+  if ($LASTEXITCODE -ne 0) { Write-Warning "7z 压缩失败（exit $LASTEXITCODE），只留 zip" }
+} else {
+  Write-Warning "没装 7z，跳过 .7z（zip 仍然生成）"
+}
+
 $exeBytes = (Get-Item $exe).Length
 $zipBytes = (Get-Item $zip).Length
 ""
 "用时 {0}s（{1}）" -f [int]$sw.Elapsed.TotalSeconds, $(if ($Fast) { "opt-level=s + lto=thin" } else { "opt-level=z + lto=fat" })
 "  exe  {0:N2} MB  {1}（其中内嵌资源 {2:N0} B）" -f ($exeBytes / 1MB), $exe, $payloadBytes.Length
 "  zip  {0:N2} MB  {1}（只有 exe，没有 nsh/ 目录）" -f ($zipBytes / 1MB), $zip
+if (Test-Path $sevenZip) {
+  "  7z   {0:N2} MB  {1}（同一份 exe，LZMA2）" -f ((Get-Item $sevenZip).Length / 1MB), $sevenZip
+}
 "  基线（不设 profile 变量）: exe 50.09 MB / zip 19.06 MB"
 
 if ($Open) { Start-Process explorer.exe (Resolve-Path ".nsh\out\CvtMouse").Path }
