@@ -22,6 +22,11 @@
 #   | 上面那组 + panic=abort            | 19.75MB |  9.81MB |
 #   | 再去掉没用的 nsh-base 依赖        | 16.12MB |  7.75MB |
 #
+# 打包只用 stable（`rustup show active-toolchain` 那个）。试过 nightly 的
+# `-Zbuild-std=std,panic_abort` + `-Zlocation-detail=none`，能再小 0.96 MB，但代价是
+# 打包机要装 nightly + rust-src、panic 信息丢文件名行号，不值——细节和实测数字见
+# `docs/build-size.md`。
+#
 # 用最省的那组：`opt-level=z`（体积优先）、`lto=fat`（跨 crate 内联后能砍掉
 # 没人调的泛型实例）、`codegen-units=1`（给 LTO 完整视野）、`strip=symbols`、
 # `panic=abort`。代价是打包从 ~1 分钟变成 ~7 分钟（LTO 是全局的，改一行也要重编）。
@@ -58,28 +63,6 @@ if ($Fast) {
 $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "1"
 $env:CARGO_PROFILE_RELEASE_STRIP = "symbols"
 $env:CARGO_PROFILE_RELEASE_PANIC = "abort"
-
-# ---- 再省 ~1 MB：std 也一起用 abort 重编，并去掉 panic 里的文件名/行号 ------
-# `-Zbuild-std` 是 cargo 的参数，`RUSTFLAGS` 里塞不进去（rustc 会说 unknown unstable
-# option），nsh 又不会替我们传，所以走 cargo 的 unstable 配置环境变量
-# `CARGO_UNSTABLE_BUILD_STD`——它等价于 `.cargo/config.toml` 里的
-# `[unstable] build-std = [...]`，但只影响本脚本这一次调用，别人 `cargo build` /
-# `nsh dev` 用 stable 照样能编。
-#
-# `-Zlocation-detail=none` 去掉 panic 信息里的 `file:line:col`：abort 之后本来也拿不到
-# 回溯，留着只是体积。要排查 panic 的话，把这一条删掉再打一版就行。
-$env:RUSTUP_TOOLCHAIN = "nightly"
-$env:CARGO_UNSTABLE_BUILD_STD = "std,panic_abort"
-$env:RUSTFLAGS = "-Zlocation-detail=none"
-
-# 预检：nightly + rust-src 缺一样，build-std 会在编到 core 时才报一句难懂的错误。
-$nightly = Join-Path $env:USERPROFILE ".rustup\toolchains\nightly-x86_64-pc-windows-msvc"
-if (-not (Test-Path $nightly)) {
-  throw "需要 nightly 工具链（build-std 用）：rustup toolchain install nightly --profile minimal --component rust-src"
-}
-if (-not (Test-Path (Join-Path $nightly "lib\rustlib\src\rust\library"))) {
-  throw "nightly 缺 rust-src：rustup component add rust-src --toolchain nightly"
-}
 
 $sw = [Diagnostics.Stopwatch]::StartNew()
 nsh package --target windows

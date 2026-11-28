@@ -116,120 +116,15 @@ nsh build        # 只出 bundle（.nsh/out），不打包
 工具链是 nsh 0.7.2：`Cargo.toml` 的 `nsh-core` / `nsh-base` 必须和它对齐，CI 里也钉着
 同一个版本（见下面「发布」一节）。
 
-### 打包体积
+### 打包体积与编译优化
 
-包里的 99% 是 **nsh 的运行时 runner**（我们自己的东西只有 bundle 29KB + 图标 58KB），
-而 runner 是 nsh 用 cargo 在它自己的 workspace 里编的，所以本仓库 `Cargo.toml` 的
-`[profile.release]` 对它无效（cargo 会忽略成员 crate 的 profile）——只能用 cargo 的
-profile 环境变量，`package.ps1` 就是把这几个变量设好再调 `nsh package`：
+exe **16.12 MB**、zip **7.75 MB**、另有一份 7z **4.99 MB**（0.1.3 是 30.97 / 13.03 MB）。
+大头是两个开关：`panic=abort`（−11.8 MB）和删掉根本没用到的 `nsh-base` 依赖（−3.63 MB，
+它把语法高亮那套 `syntect` / `oniguruma` 拖进了包）。
 
-| 配置 | exe | zip |
-| --- | --- | --- |
-| 不设（`nsh package` 直跑） | 50.09 MB | 19.06 MB |
-| `-Fast`：`opt-level=s` + `lto=thin` | 35.07 MB | 13.83 MB |
-| `opt-level=z` + `lto=fat`（0.1.3 及以前） | 30.97 MB | 13.03 MB |
-| 上面那组 + `panic=abort` | 19.75 MB | 9.81 MB |
-| 再去掉 `nsh-base` 依赖 | 16.12 MB | 7.75 MB |
-| **上面那组 + nightly `build-std`（0.1.4）** | **15.16 MB** | **7.40 MB** |
-
-0.1.4 的发布包还多挂一份 `.7z`：同一个 exe，LZMA2 压出来 **4.76 MB**（zip 是 deflate，
-7.40 MB）——下载量直接砍三分一，零风险，`package.ps1` 和 CI 都会顺手出一份。
-
-`lto=fat` + `codegen-units=1` + `strip=symbols` 一直开着。四步压下来：
-
-| 动作 | runner exe | 省 |
-| --- | --- | --- |
-| 起点（0.1.3 发布版，CI） | 32,572,284 B | — |
-| `panic=abort` | 20,557,824 B | −11.8 MB |
-| 去掉没人用的 `nsh-base` | 16,756,224 B | −3.63 MB |
-| nightly `-Zbuild-std=std,panic_abort` + `-Zlocation-detail=none` | 15,751,168 B | −0.96 MB |
-
-最终成品 `15,900,523 B`（含 89,939 B 内嵌资源），zip `7,757,438 B`，7z `4,990,898 B`。
-
-代价：nsh 运行时原本靠 `catch_unwind` 把 Rust panic 拦下来转成错误（`nsh-core/main_thread.rs`、
-`nsh-js/classes.rs`、`nsh-engine/host_channel.rs` 一共 26 处），abort 之后 Rust 侧一 panic
-进程就退出。**panic hook 仍会跑**（nsh-engine/logging.rs 里 `set_hook`），日志写得出，但
-`-Zlocation-detail=none` 把 panic 信息里的文件名和行号去掉了（反正 abort 后也没回溯）。
-要排查 panic 的话，把 `package.ps1` 里 `RUSTFLAGS` 那行删掉重打一版就能拿回位置。
-
-`opt-level` 用 `z` 而不是 `s`：同一份代码只差这一项，`z` 的 runner 是 19.61 MB，`s` 是
-22.99 MB（差 3.4 MB）——既然一切为了体积，就用 `z`。
-
-`build-std` 是 cargo 的参数，`RUSTFLAGS` 里塞不进去（rustc 报 unknown unstable option），
-nsh 也不会替我们传，所以 `package.ps1` 走 cargo 的 unstable 配置环境变量
-`CARGO_UNSTABLE_BUILD_STD=std,panic_abort` + `RUSTUP_TOOLCHAIN=nightly`。它只影响这一次
-打包；别人 `cargo build` / `nsh dev` 用 stable 照样能编。代价是打包机要装
-`rustup toolchain install nightly --profile minimal --component rust-src`（脚本里有预检，
-缺了会直接报这句命令）。
-
-编译时间：换档后 LTO 全量重编约 2~7 分钟（改一行也要重编）；代码没动时再跑只要 2 秒。
-
-### runner 的 feature 怎么定的
-
-runner 里哪些模块编进去，是 **nsh 自己按「这个 app 实际 import / link 了什么」挑的**，
-`nsh package -v` 会把决定逐条打出来（实测 0.7.2）：
-
-```text
-keep `js`: the app has a JS bundle
-keep `net`: `fetch` and remote images depend on data, not imports
-keep `svg`: an image's format depends on data, not imports
-keep `plot`: the app links `nsh_part_plot`
-leave out `shader` `editor` `rich-editor` `term` `emoji-picker` `highlight` `math`
-          `zlib` `crypto` `websocket` `updater` `webview` `sound` `media`
-```
-
-想改这个判断本身是改不动的，三条都试过：
-
-* 宿主 crate `.nsh/rust/windows-app/Cargo.toml` 里确实有一条全量的 `default = [...]`，但
-  每次 `nsh package` 都会把它重写回去（改完再跑，4 秒后就被覆盖）；
-* `nsh.json` 的 `"features"` 说的是 **app 自己 crate 的** Cargo feature，不是 runner 的
-  （nsh 自己的帮助原文：*The crate's Cargo features to turn on*）。拿一个不存在的 feature
-  名做探针塞进去，`nsh package -v` 的 keep/leave 列表一字未变，也不报错；
-* `nsh package` 没有 `--features`，也没有相关的环境变量。
-
-**但 `leave out` 会被我们自己的依赖悄悄抵消掉。** 这里踩过一次：`Cargo.toml` 里写着
-`nsh-base = "0.7.2"`（默认特性 = `editor` / `highlight` / `plot` / `rich-editor` / `term`），
-而 `src/` 里一次都没用到 `nsh_base`。cargo 的 feature 统一让 nsh 的 `leave out highlight`
-失效，`syntect` + `oniguruma` + `ropey` + `vte` 全被链进 exe（成品里 `onig` 有 137 处字符串）。
-
-```text
-$ cargo tree -i syntect
-syntect v5.3.0
-├── nsh-base v0.7.2
-│   ├── cvtmouse v0.1.4 (D:\dev\project\i\rust\CvtMouse)   ← 就是这行
-│   └── nsh-app-cvtmouse-windows-app v0.0.0
-```
-
-把那行删掉（宿主 crate 自己声明的是 `default-features = false`），`syntect` / `onig` /
-`ropey` / `vte` / `curve25519-dalek` 全部从依赖图消失：
-
-| | runner exe |
-| --- | --- |
-| 带 `nsh-base`（默认特性） | 20,557,824 B |
-| 删掉 `nsh-base` | **16,756,224 B（−3.63 MB）** |
-
-教训：**自己 crate 的依赖特性也会决定 runner 里有什么**，删无用依赖和关默认特性都要做。
-
-### 还能压的（都量过了，0.1.4 之后只剩这些）
-
-| 手段 | 收益 | 代价 | 结论 |
-| --- | --- | --- | --- |
-| `panic=abort` | −11.2 MB | panic 不再被拦，但 hook 仍写日志 | **已做** |
-| 去掉 `nsh-base` | −3.63 MB | 无（本来就没用到） | **已做** |
-| nightly `-Zbuild-std=std,panic_abort` + `-Zlocation-detail=none` | −0.96 MB | 打包机要 nightly + `rust-src`，panic 没有文件名行号 | **已做** |
-| 发布包再挂一份 7z（LZMA2 `-mx9`） | zip 7.40 → **4.76 MB** | 无（zip 照旧，两个都挂） | **已做** |
-| 关掉 `svg` | −2.03 MB | nsh 判断不了数据驱动用法，关不掉 | 等上游 |
-| 关掉 `net` | −416 KB | 同上 | 等上游 |
-| `panic="immediate-abort"` | 几百 KB | panic 完全不格式化，连日志都没有 | 不建议 |
-| UPX | 能压到 7 MB 级 | 杀软误报、每次启动要解压 | 不建议 |
-
-`wgpu` 不在上面这张单子里：它在 `nsh-engine` 里是 `optional = true`，由 `shader` feature
-决定，而 runner 的判断是 `leave out shader`，所以打包产物里**根本没有 wgpu**（按打包用的
-feature 集合跑 `cargo tree -i wgpu` 会直接报 `package ID specification wgpu did not match
-any packages`；扫成品也只找到 `Devanagari` 这类文字名里的 `naga`，没有 `naga::` 路径）。
-留一个对照：故意带上 `shader` 编一次，runner 是 23,275,008 B（+2.59 MB），里面 `wgpu` 202 处、
-`naga::` 210 处、`D3D12` 35 处、`Vulkan` 19 处——所以它在不在，一眼就能看出来。
-
+全部细节都在 **[docs/build-size.md](docs/build-size.md)**：每一档的实测字节数、runner 的
+feature 由谁决定、`wgpu` 为什么不在包里（附取证）、试过但没采用的 nightly `build-std` 和
+UPX、以及还剩哪些压不动（`net` 416 KB + `svg` 2.03 MB，被 nsh 挡着）。
 ### exe 属性页里的版本
 
 `nsh package` 会把它的 runner 复制成 `CvtMouse.exe`、把图标补进去，但**不写版本资源**
