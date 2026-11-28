@@ -9,7 +9,6 @@
 | --- | --- | --- |
 | `CvtMouse.exe` | 16,905,579 B | 16.12 MB |
 | `CvtMouse.zip`（只有 exe） | 8,126,741 B | 7.75 MB |
-| `CvtMouse.7z`（同一份 exe） | 5,230,915 B | 4.99 MB |
 
 起点是 0.1.3 的 32,572,284 B（31.06 MB），也就是 **exe 少了 48%**。
 
@@ -175,16 +174,21 @@ with a panic strategy which is incompatible with immediate-abort`），收益只
 `usvg` / `tiny-skia` / `fontdb` / `harfrust` / `skrifa` 一整套光栅化，一共 34 个 crate。两个
 都关不掉（nsh 判断不了数据驱动的用法），那 2.44 MB 得等上游给个声明入口。
 
-## 分发包压缩
+## 分发包压缩：只用 zip
 
-zip 只能 deflate；同一个 exe 用 7z 的 LZMA2（`-mx9 -ms=on`）压：
+zip 只能 deflate。同一个 exe 用 7z 的 LZMA2（`-mx9 -ms=on`）能再小将近三分之一：
 
 | | 字节 | 显示 |
 | --- | --- | --- |
 | deflate（`Compress-Archive`） | 8,126,741 B | 7.75 MB |
 | LZMA2（`7z a -t7z -mx=9`） | 5,230,915 B | 4.99 MB |
 
-`package.ps1` 两种都出（没有 7z 就只出 zip，不拦下打包）；CI 也两种都挂到 Release 上。
+0.1.4 那版两种都发过，**0.1.5 起只发 zip**：多一种包就多一套解压说明和校验，
+省下来的那 2.7 MB 下载量不值得。要临时压一份看体积：
+
+```powershell
+7z a -t7z -mx=9 -ms=on .nsh\out\CvtMouse.7z .nsh\out\CvtMouse\CvtMouse.exe
+```
 
 ## 编译时间
 

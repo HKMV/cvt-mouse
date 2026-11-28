@@ -118,13 +118,14 @@ nsh build        # 只出 bundle（.nsh/out），不打包
 
 ### 打包体积与编译优化
 
-exe **16.12 MB**、zip **7.75 MB**、另有一份 7z **4.99 MB**（0.1.3 是 30.97 / 13.03 MB）。
+exe **16.12 MB**、zip **7.75 MB**（0.1.3 是 30.97 / 13.03 MB）。
 大头是两个开关：`panic=abort`（−11.8 MB）和删掉根本没用到的 `nsh-base` 依赖（−3.63 MB，
 它把语法高亮那套 `syntect` / `oniguruma` 拖进了包）。
 
 全部细节都在 **[docs/build-size.md](docs/build-size.md)**：每一档的实测字节数、runner 的
 feature 由谁决定、`wgpu` 为什么不在包里（附取证）、试过但没采用的 nightly `build-std` 和
 UPX、以及还剩哪些压不动（`net` 416 KB + `svg` 2.03 MB，被 nsh 挡着）。
+
 ### exe 属性页里的版本
 
 `nsh package` 会把它的 runner 复制成 `CvtMouse.exe`、把图标补进去，但**不写版本资源**

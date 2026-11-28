@@ -130,26 +130,12 @@ Remove-Item ".nsh\out\CvtMouse.iss" -Force -ErrorAction SilentlyContinue
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path "$appDir/*" -DestinationPath $zip -Force
 
-# 再压一份 7z：zip 只能 deflate，同一个 exe 用 LZMA2 能再小 ~30%（实测 10.28 → 6.81 MB）。
-# 机器上没有 7z 就跳过，不拦下打包——zip 那份永远在。
-$sevenZip = ".nsh\out\CvtMouse.7z"
-if (Get-Command 7z -ErrorAction SilentlyContinue) {
-  Remove-Item $sevenZip -Force -ErrorAction SilentlyContinue
-  & 7z a -t7z -mx=9 -ms=on $sevenZip $exe | Out-Null
-  if ($LASTEXITCODE -ne 0) { Write-Warning "7z 压缩失败（exit $LASTEXITCODE），只留 zip" }
-} else {
-  Write-Warning "没装 7z，跳过 .7z（zip 仍然生成）"
-}
-
 $exeBytes = (Get-Item $exe).Length
 $zipBytes = (Get-Item $zip).Length
 ""
 "用时 {0}s（{1}）" -f [int]$sw.Elapsed.TotalSeconds, $(if ($Fast) { "opt-level=s + lto=thin" } else { "opt-level=z + lto=fat" })
 "  exe  {0:N2} MB  {1}（其中内嵌资源 {2:N0} B）" -f ($exeBytes / 1MB), $exe, $payloadBytes.Length
 "  zip  {0:N2} MB  {1}（只有 exe，没有 nsh/ 目录）" -f ($zipBytes / 1MB), $zip
-if (Test-Path $sevenZip) {
-  "  7z   {0:N2} MB  {1}（同一份 exe，LZMA2）" -f ((Get-Item $sevenZip).Length / 1MB), $sevenZip
-}
 "  基线（不设 profile 变量）: exe 50.09 MB / zip 19.06 MB"
 
 if ($Open) { Start-Process explorer.exe (Resolve-Path ".nsh\out\CvtMouse").Path }
